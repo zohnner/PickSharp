@@ -11,10 +11,13 @@ not_found_handling = "single-page-application"
 [[d1_databases]]
 binding = "DB"
 database_name = "sharpflow-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+# database_id intentionally omitted: Wrangler auto-provisions the D1 database
+# on first deploy and writes the id back into this file.
 
-# Non-secret vars can go here; secrets (SUPABASE_SERVICE_ROLE_KEY, ADMIN_SECRET)
-# should be set with: wrangler secret put <NAME>
+# SUPABASE_URL and SUPABASE_ANON_KEY are the project URL + publishable/anon key,
+# both safe to commit (same values already bundled into the frontend JS).
+# ADMIN_SECRET is sensitive and must be set separately in the Cloudflare dashboard:
+# Worker -> Settings -> Variables and Secrets -> Add secret.
 [vars]
-SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
-SUPABASE_ANON_KEY = "your-anon-key"
+SUPABASE_URL = "https://xnubjcrvkjxhtbkgfkaz.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_0pE2OkqdMUv2Pr0WppR_nw_8tfIMhuG"
