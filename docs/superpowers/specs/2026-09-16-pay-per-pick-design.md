@@ -133,11 +133,14 @@ and its consumers go.
 - Body: `{ pick_ids: [...], buyer_token }` — the client sends exactly the
   set of pick IDs it currently sees as locked.
 - Server re-derives each price from confidence (never trusts a client-sent
-  price), sums them, applies a 20% discount to the total, creates a
-  single Stripe Checkout Session with one line item per pick (Stripe
-  supports multiple `line_items`; discount applied via a
-  `coupon`/`discounts` param on the session, not by altering individual
-  line item prices, so the receipt stays itemized).
+  price), applies a flat 20% discount to each pick's price individually
+  (rounded to the nearest cent), and creates a single Stripe Checkout
+  Session with one line item per pick at its discounted price. Discount
+  is applied to each line item's `unit_amount` directly rather than via
+  a Stripe `coupon`/`discounts` param, so there's no separate Coupon
+  object to create/manage in the Stripe dashboard — the discount is
+  self-contained in Worker code and the receipt still itemizes each pick
+  (just at its already-discounted price).
 - `metadata: { buyer_token, pick_ids: pick_ids.join(',') }`.
 - Same success/cancel URL shape as above.
 - 400 if `pick_ids` is empty or any id doesn't exist / is the free pick.
