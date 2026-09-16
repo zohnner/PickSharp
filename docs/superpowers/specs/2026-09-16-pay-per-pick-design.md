@@ -42,17 +42,23 @@ CREATE TABLE IF NOT EXISTS pick_unlocks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   buyer_token TEXT NOT NULL,
   pick_id INTEGER NOT NULL,
-  stripe_session_id TEXT NOT NULL UNIQUE,
+  stripe_session_id TEXT NOT NULL,
   unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (pick_id) REFERENCES picks(id)
+  FOREIGN KEY (pick_id) REFERENCES picks(id),
+  UNIQUE (stripe_session_id, pick_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_pick_unlocks_buyer ON pick_unlocks(buyer_token);
 ```
 
-`stripe_session_id UNIQUE` is what makes confirm-on-return idempotent: a
-second confirm call for the same session simply finds existing rows and
-returns success without re-inserting.
+The uniqueness is on the **pair** `(stripe_session_id, pick_id)`, not on
+`stripe_session_id` alone — a bundle purchase inserts one row per pick
+under the same session id, so a column-level UNIQUE on the session id
+alone would only allow the first pick in a bundle to ever be recorded.
+The pair constraint is what makes confirm-on-return idempotent: a second
+confirm call for the same session re-attempts the same
+`(session_id, pick_id)` pairs and each one is silently ignored via
+`INSERT OR IGNORE`.
 
 No `price` column is added to `picks`. Price is computed in Worker code
 from `confidence`:
@@ -146,9 +152,9 @@ and its consumers go.
   `buyer_token` query param (prevents one browser from redeeming a
   session it didn't create, e.g. a shared/leaked success URL).
 - On success: for each id in `metadata.pick_ids.split(',')`, insert a row
-  into `pick_unlocks` — `INSERT OR IGNORE` keyed by the `stripe_session_id`
-  UNIQUE constraint, so calling this endpoint twice for the same session
-  is a no-op the second time.
+  into `pick_unlocks` via `INSERT OR IGNORE`, relying on the
+  `(stripe_session_id, pick_id)` UNIQUE constraint so calling this
+  endpoint twice for the same session re-inserts nothing the second time.
 - Response: `{ unlocked_pick_ids: [...] }`.
 
 ### Removed
