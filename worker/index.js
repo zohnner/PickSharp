@@ -1,4 +1,15 @@
-import { getPicks, insertPick, deletePickById, upsertUser, getUserById } from './db.js';
+import {
+  getPicks,
+  insertPick,
+  deletePickById,
+  upsertUser,
+  getUserById,
+  getTodaysPicksRaw,
+  freePickId,
+  getUnlockedPickIds,
+  insertUnlocks,
+} from './db.js';
+import { priceForConfidence, bundlePrice } from './pricing.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -68,16 +79,25 @@ async function handleGetMe(request, env) {
 }
 
 async function handleGetPicksToday(request, env) {
-  const supabaseUser = await getSupabaseUser(request, env);
-  let isPremium = false;
+  const url = new URL(request.url);
+  const buyerToken = url.searchParams.get('buyer_token') || '';
 
-  if (supabaseUser) {
-    const user = await getUserById(env.DB, supabaseUser.id);
-    isPremium = Boolean(user?.is_premium);
-  }
+  const picks = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(picks);
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyerToken);
 
-  const picks = await getPicks(env.DB, isPremium ? {} : { sinceDays: 7 });
-  return json({ picks });
+  const shaped = picks
+    .map((pick) => {
+      const locked = pick.id !== freeId && !unlockedIds.has(pick.id);
+      if (!locked) {
+        return { ...pick, locked: false };
+      }
+      const { pick_text, affiliate_link, ...rest } = pick;
+      return { ...rest, locked: true, price_cents: priceForConfidence(pick.confidence) };
+    })
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+
+  return json({ picks: shaped });
 }
 
 async function handleAdminListPicks(request, env) {
