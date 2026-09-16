@@ -3,9 +3,17 @@ const STRIPE_API = 'https://api.stripe.com/v1';
 function formEncode(obj, prefix = '') {
   const params = [];
   for (const [key, value] of Object.entries(obj)) {
+    // Skip undefined and null values
+    if (value === undefined || value === null) {
+      continue;
+    }
     const paramKey = prefix ? `${prefix}[${key}]` : key;
     if (Array.isArray(value)) {
       value.forEach((item, i) => {
+        // Skip undefined and null items
+        if (item === undefined || item === null) {
+          return;
+        }
         if (item && typeof item === 'object') {
           params.push(formEncode(item, `${paramKey}[${i}]`));
         } else {
