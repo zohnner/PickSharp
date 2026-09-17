@@ -10,6 +10,7 @@ import {
   insertUnlocks,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
+import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -124,6 +125,86 @@ async function handleAdminDeletePick(request, env, id) {
   return json({ success: true });
 }
 
+async function handleCheckoutPick(request, env) {
+  const { pick_id, buyer_token } = await request.json();
+  if (!pick_id || !buyer_token) {
+    return json({ error: 'pick_id and buyer_token are required' }, 400);
+  }
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(picks);
+  const pick = picks.find((p) => p.id === pick_id);
+
+  if (!pick || pick.id === freeId) {
+    return json({ error: 'Pick not found or not purchasable' }, 400);
+  }
+
+  const origin = new URL(request.url).origin;
+  const priceCents = priceForConfidence(pick.confidence);
+
+  let session;
+  try {
+    session = await createCheckoutSession(env, {
+      lineItems: [
+        {
+          price_data: {
+            currency: 'usd',
+            unit_amount: priceCents,
+            product_data: { name: `${pick.author} pick: ${pick.game}` },
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { buyer_token, pick_ids: String(pick.id) },
+      successUrl: `${origin}/picks?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/picks`,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  return json({ url: session.url });
+}
+
+async function handleCheckoutBundle(request, env) {
+  const { pick_ids, buyer_token } = await request.json();
+  if (!Array.isArray(pick_ids) || pick_ids.length === 0 || !buyer_token) {
+    return json({ error: 'pick_ids (non-empty array) and buyer_token are required' }, 400);
+  }
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(picks);
+  const purchasable = picks.filter((p) => pick_ids.includes(p.id) && p.id !== freeId);
+
+  if (purchasable.length === 0) {
+    return json({ error: 'No purchasable picks in pick_ids' }, 400);
+  }
+
+  const origin = new URL(request.url).origin;
+  const lineItems = purchasable.map((pick) => ({
+    price_data: {
+      currency: 'usd',
+      unit_amount: bundlePrice(priceForConfidence(pick.confidence)),
+      product_data: { name: `${pick.author} pick: ${pick.game}` },
+    },
+    quantity: 1,
+  }));
+
+  let session;
+  try {
+    session = await createCheckoutSession(env, {
+      lineItems,
+      metadata: { buyer_token, pick_ids: purchasable.map((p) => p.id).join(',') },
+      successUrl: `${origin}/picks?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/picks`,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  return json({ url: session.url });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -145,6 +226,12 @@ export default {
       }
       if (pathname === '/api/picks/today' && request.method === 'GET') {
         return await handleGetPicksToday(request, env);
+      }
+      if (pathname === '/api/checkout/pick' && request.method === 'POST') {
+        return await handleCheckoutPick(request, env);
+      }
+      if (pathname === '/api/checkout/bundle' && request.method === 'POST') {
+        return await handleCheckoutBundle(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
