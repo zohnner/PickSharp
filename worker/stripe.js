@@ -52,6 +52,7 @@ export async function createCheckoutSession(env, { lineItems, metadata, successU
     cancel_url: cancelUrl,
     line_items: lineItems,
     metadata,
+    managed_payments: { enabled: false },
   });
 }
 
