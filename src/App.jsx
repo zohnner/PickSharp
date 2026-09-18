@@ -30,7 +30,7 @@ export default function App() {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/picks" element={<Picks session={session} />} />
+          <Route path="/picks" element={<Picks />} />
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />
           <Route path="/dashboard" element={<Dashboard session={session} />} />
           <Route path="/admin" element={<AdminPanel />} />
