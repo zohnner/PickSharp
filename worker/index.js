@@ -76,7 +76,7 @@ async function handleGetMe(request, env) {
 
   await upsertUser(env.DB, { id: supabaseUser.id, email: supabaseUser.email });
   const user = await getUserById(env.DB, supabaseUser.id);
-  return json({ user });
+  return json({ user: { id: user.id, email: user.email, created_at: user.created_at } });
 }
 
 async function handleGetPicksToday(request, env) {
