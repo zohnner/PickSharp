@@ -44,26 +44,14 @@ export default function Landing() {
 
       <section className="mx-auto max-w-4xl px-4 py-16">
         <h2 className="text-center text-2xl font-bold text-slate-900">Simple pricing</h2>
-        <div className="mt-8 grid gap-6 sm:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Free</h3>
-            <p className="mt-1 text-3xl font-bold text-slate-900">$0</p>
-            <ul className="mt-4 space-y-2 text-sm text-slate-600">
-              <li>Last 7 days of picks</li>
-              <li>DraftKings betting links</li>
-            </ul>
-          </div>
-          <div className="rounded-lg border-2 border-sharp-600 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Premium</h3>
-            <p className="mt-1 text-3xl font-bold text-slate-900">
-              $14.99<span className="text-base font-normal text-slate-500">/mo</span>
-            </p>
-            <ul className="mt-4 space-y-2 text-sm text-slate-600">
-              <li>Full pick history</li>
-              <li>Advanced filters</li>
-              <li>Picker leaderboards</li>
-            </ul>
-          </div>
+        <div className="mx-auto mt-8 max-w-md rounded-lg border-2 border-sharp-600 bg-white p-6 text-center">
+          <p className="text-3xl font-bold text-slate-900">$1.99 – $4.99</p>
+          <p className="mt-1 text-sm text-slate-500">per pick, priced by confidence</p>
+          <ul className="mt-4 space-y-2 text-sm text-slate-600">
+            <li>One free pick every day</li>
+            <li>Pay only for the picks you want</li>
+            <li>Unlock all of today's picks together at a discount</li>
+          </ul>
         </div>
       </section>
     </div>
