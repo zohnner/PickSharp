@@ -1,3 +1,5 @@
+import { checkoutPick } from '../lib/api.js';
+
 const TYPE_LABELS = {
   spread: 'Spread',
   moneyline: 'Moneyline',
@@ -13,8 +15,17 @@ const CONFIDENCE_STYLES = {
 
 const DK_LINK = 'https://ak.draftkings.com';
 
-export default function PickCard({ pick }) {
+export default function PickCard({ pick, buyerToken }) {
   const winRate = pick.win_rate ?? 55;
+
+  const handleUnlock = async () => {
+    try {
+      const { url } = await checkoutPick(pick.id, buyerToken);
+      window.location.href = url;
+    } catch (err) {
+      window.alert(err.message);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -41,20 +52,34 @@ export default function PickCard({ pick }) {
             {TYPE_LABELS[pick.pick_type] || pick.pick_type}
           </span>
         </div>
-        <p className="mt-2 text-lg font-bold text-slate-900">{pick.pick_text}</p>
+
+        {pick.locked ? (
+          <p className="mt-2 text-lg font-bold text-slate-400 blur-sm select-none">Locked pick</p>
+        ) : (
+          <p className="mt-2 text-lg font-bold text-slate-900">{pick.pick_text}</p>
+        )}
         <p className="mt-1 text-sm text-slate-500">
           {pick.game} · {pick.game_time}
         </p>
       </div>
 
-      <a
-        href={pick.affiliate_link || DK_LINK}
-        target="_blank"
-        rel="noopener noreferrer sponsored"
-        className="mt-4 inline-flex items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
-      >
-        Bet on DraftKings
-      </a>
+      {pick.locked ? (
+        <button
+          onClick={handleUnlock}
+          className="mt-4 inline-flex items-center justify-center rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700"
+        >
+          Unlock for ${(pick.price_cents / 100).toFixed(2)}
+        </button>
+      ) : (
+        <a
+          href={pick.affiliate_link || DK_LINK}
+          target="_blank"
+          rel="noopener noreferrer sponsored"
+          className="mt-4 inline-flex items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+        >
+          Bet on DraftKings
+        </a>
+      )}
     </div>
   );
 }
