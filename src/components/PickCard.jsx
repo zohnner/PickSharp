@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { checkoutPick } from '../lib/api.js';
 
 const TYPE_LABELS = {
@@ -17,12 +18,15 @@ const DK_LINK = 'https://ak.draftkings.com';
 
 export default function PickCard({ pick, buyerToken }) {
   const winRate = pick.win_rate ?? 55;
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   const handleUnlock = async () => {
+    setIsUnlocking(true);
     try {
       const { url } = await checkoutPick(pick.id, buyerToken);
       window.location.href = url;
     } catch (err) {
+      setIsUnlocking(false);
       window.alert(err.message);
     }
   };
@@ -66,7 +70,8 @@ export default function PickCard({ pick, buyerToken }) {
       {pick.locked ? (
         <button
           onClick={handleUnlock}
-          className="mt-4 inline-flex items-center justify-center rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700"
+          disabled={isUnlocking}
+          className="mt-4 inline-flex items-center justify-center rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Unlock for ${(pick.price_cents / 100).toFixed(2)}
         </button>
