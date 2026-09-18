@@ -205,6 +205,35 @@ async function handleCheckoutBundle(request, env) {
   return json({ url: session.url });
 }
 
+async function handleCheckoutConfirm(request, env) {
+  const url = new URL(request.url);
+  const sessionId = url.searchParams.get('session_id');
+  const buyerToken = url.searchParams.get('buyer_token');
+
+  if (!sessionId || !buyerToken) {
+    return json({ error: 'session_id and buyer_token are required' }, 400);
+  }
+
+  let session;
+  try {
+    session = await retrieveCheckoutSession(env, sessionId);
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  if (session.payment_status !== 'paid') {
+    return json({ error: 'Payment not confirmed' }, 402);
+  }
+  if (session.metadata?.buyer_token !== buyerToken) {
+    return json({ error: 'buyer_token does not match this session' }, 400);
+  }
+
+  const pickIds = session.metadata.pick_ids.split(',').map(Number);
+  await insertUnlocks(env.DB, { buyerToken, pickIds, stripeSessionId: sessionId });
+
+  return json({ unlocked_pick_ids: pickIds });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -232,6 +261,9 @@ export default {
       }
       if (pathname === '/api/checkout/bundle' && request.method === 'POST') {
         return await handleCheckoutBundle(request, env);
+      }
+      if (pathname === '/api/checkout/confirm' && request.method === 'GET') {
+        return await handleCheckoutConfirm(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
