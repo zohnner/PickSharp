@@ -18,9 +18,10 @@ async function request(path, options = {}) {
   return body;
 }
 
-export async function getTodaysPicks() {
+export async function getTodaysPicks(buyerToken) {
   const headers = await authHeaders();
-  return request('/picks/today', { headers });
+  const query = buyerToken ? `?buyer_token=${encodeURIComponent(buyerToken)}` : '';
+  return request(`/picks/today${query}`, { headers });
 }
 
 export async function getCurrentUser() {
@@ -47,4 +48,24 @@ export async function listAllPicks(adminSecret) {
   return request('/admin/picks', {
     headers: { 'x-admin-secret': adminSecret },
   });
+}
+
+export async function checkoutPick(pickId, buyerToken) {
+  return request('/checkout/pick', {
+    method: 'POST',
+    body: JSON.stringify({ pick_id: pickId, buyer_token: buyerToken }),
+  });
+}
+
+export async function checkoutBundle(pickIds, buyerToken) {
+  return request('/checkout/bundle', {
+    method: 'POST',
+    body: JSON.stringify({ pick_ids: pickIds, buyer_token: buyerToken }),
+  });
+}
+
+export async function confirmCheckout(sessionId, buyerToken) {
+  return request(
+    `/checkout/confirm?session_id=${encodeURIComponent(sessionId)}&buyer_token=${encodeURIComponent(buyerToken)}`
+  );
 }
