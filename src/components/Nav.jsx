@@ -12,8 +12,8 @@ export default function Nav({ session }) {
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <Link to="/" className="text-xl font-bold text-slate-900">
-          Pick<span className="text-sharp-600">Sharp</span>
+        <Link to="/" className="flex items-center">
+          <img src="/logo.png" alt="PickSharp" className="h-9 w-auto" />
         </Link>
         <nav className="flex items-center gap-6">
           <NavLink to="/picks" className={linkClass}>
