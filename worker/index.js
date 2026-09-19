@@ -5,6 +5,7 @@ import {
   upsertUser,
   getUserById,
   getTodaysPicksRaw,
+  getPicksByIds,
   freePickId,
   getUnlockedPickIds,
   insertUnlocks,
@@ -83,9 +84,18 @@ async function handleGetPicksToday(request, env) {
   const url = new URL(request.url);
   const buyerToken = url.searchParams.get('buyer_token') || '';
 
-  const picks = await getTodaysPicksRaw(env.DB);
-  const freeId = freePickId(picks);
+  const todays = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(todays);
   const unlockedIds = await getUnlockedPickIds(env.DB, buyerToken);
+
+  const todaysIds = new Set(todays.map((p) => p.id));
+  const missingUnlockedIds = [...unlockedIds].filter((id) => !todaysIds.has(id));
+
+  let picks = todays;
+  if (missingUnlockedIds.length > 0) {
+    const olderUnlocked = await getPicksByIds(env.DB, missingUnlockedIds);
+    picks = picks.concat(olderUnlocked);
+  }
 
   const shaped = picks
     .map((pick) => {
@@ -96,7 +106,11 @@ async function handleGetPicksToday(request, env) {
       const { pick_text, affiliate_link, ...rest } = pick;
       return { ...rest, locked: true, price_cents: priceForConfidence(pick.confidence) };
     })
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    .sort((a, b) => {
+      if (a.created_at < b.created_at) return 1;
+      if (a.created_at > b.created_at) return -1;
+      return 0;
+    });
 
   return json({ picks: shaped });
 }
@@ -139,6 +153,11 @@ async function handleCheckoutPick(request, env) {
     return json({ error: 'Pick not found or not purchasable' }, 400);
   }
 
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
+  if (unlockedIds.has(pick.id)) {
+    return json({ error: 'Pick already unlocked' }, 400);
+  }
+
   const origin = new URL(request.url).origin;
   const priceCents = priceForConfidence(pick.confidence);
 
@@ -174,7 +193,10 @@ async function handleCheckoutBundle(request, env) {
 
   const picks = await getTodaysPicksRaw(env.DB);
   const freeId = freePickId(picks);
-  const purchasable = picks.filter((p) => pick_ids.includes(p.id) && p.id !== freeId);
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
+  const purchasable = picks.filter(
+    (p) => pick_ids.includes(p.id) && p.id !== freeId && !unlockedIds.has(p.id)
+  );
 
   if (purchasable.length === 0) {
     return json({ error: 'No purchasable picks in pick_ids' }, 400);
@@ -228,7 +250,13 @@ async function handleCheckoutConfirm(request, env) {
     return json({ error: 'buyer_token does not match this session' }, 400);
   }
 
-  const pickIds = session.metadata.pick_ids.split(',').map(Number);
+  if (!session.metadata?.pick_ids) {
+    return json({ error: 'Session has no associated picks' }, 400);
+  }
+  const pickIds = session.metadata.pick_ids.split(',').map(Number).filter(Number.isInteger);
+  if (pickIds.length === 0) {
+    return json({ error: 'Session has no associated picks' }, 400);
+  }
   await insertUnlocks(env.DB, { buyerToken, pickIds, stripeSessionId: sessionId });
 
   return json({ unlocked_pick_ids: pickIds });

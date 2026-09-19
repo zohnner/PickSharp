@@ -57,5 +57,8 @@ export async function createCheckoutSession(env, { lineItems, metadata, successU
 }
 
 export async function retrieveCheckoutSession(env, sessionId) {
-  return stripeRequest(env, 'GET', `/checkout/sessions/${sessionId}`);
+  if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) {
+    throw new Error('Invalid session_id format');
+  }
+  return stripeRequest(env, 'GET', `/checkout/sessions/${encodeURIComponent(sessionId)}`);
 }

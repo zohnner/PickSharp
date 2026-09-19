@@ -75,6 +75,22 @@ export function freePickId(picks) {
   return freest.id;
 }
 
+export async function getPicksByIds(db, ids) {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
+              p.affiliate_link, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+       FROM picks p
+       LEFT JOIN picker_stats s ON s.author = p.author
+       WHERE p.id IN (${placeholders})`
+    )
+    .bind(...ids)
+    .all();
+  return results;
+}
+
 export async function getUnlockedPickIds(db, buyerToken) {
   if (!buyerToken) return new Set();
   const { results } = await db

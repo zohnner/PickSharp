@@ -8,26 +8,39 @@ export default function Picks() {
   const [picks, setPicks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [confirmError, setConfirmError] = useState(null);
+  const [bundleError, setBundleError] = useState(null);
+  const [isUnlockingBundle, setIsUnlockingBundle] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const buyerToken = getBuyerToken();
 
   const loadPicks = () => {
     setLoading(true);
+    setError(null);
     getTodaysPicks(buyerToken)
       .then((data) => setPicks(data.picks || []))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   };
 
+  const runConfirm = (sessionId) => {
+    setConfirmError(null);
+    confirmCheckout(sessionId, buyerToken)
+      .then(() => {
+        const next = new URLSearchParams(searchParams);
+        next.delete('session_id');
+        setSearchParams(next, { replace: true });
+        loadPicks();
+      })
+      .catch((err) => {
+        setConfirmError(err.message);
+      });
+  };
+
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
     if (sessionId) {
-      confirmCheckout(sessionId, buyerToken)
-        .catch((err) => setError(err.message))
-        .finally(() => {
-          setSearchParams({}, { replace: true });
-          loadPicks();
-        });
+      runConfirm(sessionId);
     } else {
       loadPicks();
     }
@@ -38,11 +51,14 @@ export default function Picks() {
   const bundleTotalCents = lockedPicks.reduce((sum, p) => sum + Math.round(p.price_cents * 0.8), 0);
 
   const handleUnlockAll = async () => {
+    setBundleError(null);
+    setIsUnlockingBundle(true);
     try {
       const { url } = await checkoutBundle(lockedPicks.map((p) => p.id), buyerToken);
       window.location.href = url;
     } catch (err) {
-      window.alert(err.message);
+      setBundleError(err.message);
+      setIsUnlockingBundle(false);
     }
   };
 
@@ -56,8 +72,30 @@ export default function Picks() {
 
       {lockedPicks.length >= 2 && (
         <div className="mt-6 rounded-md border border-sharp-200 bg-sharp-50 p-4 text-sm text-sharp-900">
-          <button onClick={handleUnlockAll} className="font-semibold text-sharp-700 underline">
+          <button
+            onClick={handleUnlockAll}
+            disabled={isUnlockingBundle}
+            className="font-semibold text-sharp-700 underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
             Unlock all {lockedPicks.length} picks for ${(bundleTotalCents / 100).toFixed(2)}
+          </button>
+        </div>
+      )}
+
+      {bundleError && (
+        <div className="mt-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <p>We couldn't start checkout: {bundleError}</p>
+        </div>
+      )}
+
+      {confirmError && searchParams.get('session_id') && (
+        <div className="mt-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <p>We couldn't confirm your payment: {confirmError}</p>
+          <button
+            onClick={() => runConfirm(searchParams.get('session_id'))}
+            className="mt-2 font-semibold underline"
+          >
+            Try again
           </button>
         </div>
       )}
