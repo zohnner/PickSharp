@@ -264,11 +264,12 @@ async function handleCheckoutConfirm(request, env) {
   return json({ unlocked_pick_ids: pickIds });
 }
 
+// "Today" is anchored to US Eastern time (fixed -4h/EDT offset — would need -5h during EST/winter months; not auto-adjusted).
 const QUIET_PERIOD_MINUTES = 15;
 
 async function handleDailyPostCheck(env) {
   const alreadyPosted = await env.DB.prepare(
-    `SELECT 1 FROM daily_posts WHERE date = date('now')`
+    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours')`
   ).first();
   if (alreadyPosted) return;
 
@@ -276,7 +277,7 @@ async function handleDailyPostCheck(env) {
   if (picks.length === 0) return;
 
   const newestRow = await env.DB.prepare(
-    `SELECT MAX(created_at) AS newest FROM picks WHERE date(created_at) = date('now')`
+    `SELECT MAX(created_at) AS newest FROM picks WHERE date(created_at, '-4 hours') = date('now', '-4 hours')`
   ).first();
   const minutesRow = await env.DB.prepare(
     `SELECT (julianday('now') - julianday(?)) * 24 * 60 AS minutes_since`
@@ -284,6 +285,11 @@ async function handleDailyPostCheck(env) {
     .bind(newestRow.newest)
     .first();
   if (minutesRow.minutes_since < QUIET_PERIOD_MINUTES) return;
+
+  if (!env.PUBLIC_SITE_URL) {
+    console.error('PUBLIC_SITE_URL is not configured — cannot compose tweet link.');
+    throw new Error('PUBLIC_SITE_URL is not configured');
+  }
 
   const freeId = freePickId(picks);
   const freePick = picks.find((p) => p.id === freeId);
@@ -294,10 +300,10 @@ async function handleDailyPostCheck(env) {
     tweetId = await postTweet(env, tweetText);
   } catch (err) {
     console.error('Failed to post daily tweet:', err.message);
-    return;
+    throw err;
   }
 
-  await env.DB.prepare(`INSERT INTO daily_posts (date, tweet_id) VALUES (date('now'), ?)`)
+  await env.DB.prepare(`INSERT INTO daily_posts (date, tweet_id) VALUES (date('now', '-4 hours'), ?)`)
     .bind(tweetId)
     .run();
 }
@@ -306,6 +312,12 @@ async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
   if (!buyer_token || !source) {
     return json({ error: 'buyer_token and source are required' }, 400);
+  }
+  if (typeof buyer_token !== 'string' || buyer_token.length > 64) {
+    return json({ error: 'invalid buyer_token' }, 400);
+  }
+  if (typeof source !== 'string' || !/^[a-z0-9_-]{1,32}$/.test(source)) {
+    return json({ error: 'invalid source' }, 400);
   }
   await env.DB.prepare('INSERT OR IGNORE INTO buyer_sources (buyer_token, source) VALUES (?, ?)')
     .bind(buyer_token, source)

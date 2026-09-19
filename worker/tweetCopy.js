@@ -11,7 +11,7 @@ export function composeTweet(pick, siteUrl) {
 
   let pickText = pick.pick_text;
   if (pickText.length > maxPickTextLength) {
-    pickText = pickText.slice(0, Math.max(0, maxPickTextLength - 1)) + '…';
+    pickText = [...pickText].slice(0, Math.max(0, maxPickTextLength - 1)).join('') + '…';
   }
 
   return `${prefix}${pickText}${gameSuffix}${suffix}`;

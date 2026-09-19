@@ -2,6 +2,9 @@ name = "picksharp"
 main = "worker/index.js"
 compatibility_date = "2024-09-15"
 
+[observability]
+enabled = true
+
 [[routes]]
 pattern = "wepicksharp.com"
 custom_domain = true
