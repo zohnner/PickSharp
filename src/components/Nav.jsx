@@ -13,7 +13,7 @@ export default function Nav({ session }) {
     <header className="border-b border-neutral-800 bg-neutral-950">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
         <Link to="/" className="flex items-center">
-          <img src="/logo-white.png" alt="PickSharp" className="h-9 w-auto" />
+          <img src="/logo-white.png" alt="PickSharp" className="h-11 w-auto" />
         </Link>
         <nav className="flex items-center gap-6">
           <NavLink to="/picks" className={linkClass}>
