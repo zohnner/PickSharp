@@ -1,4 +1,17 @@
-import { getPicks, insertPick, deletePickById, upsertUser, getUserById } from './db.js';
+import {
+  getPicks,
+  insertPick,
+  deletePickById,
+  upsertUser,
+  getUserById,
+  getTodaysPicksRaw,
+  getPicksByIds,
+  freePickId,
+  getUnlockedPickIds,
+  insertUnlocks,
+} from './db.js';
+import { priceForConfidence, bundlePrice } from './pricing.js';
+import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -64,20 +77,42 @@ async function handleGetMe(request, env) {
 
   await upsertUser(env.DB, { id: supabaseUser.id, email: supabaseUser.email });
   const user = await getUserById(env.DB, supabaseUser.id);
-  return json({ user });
+  return json({ user: { id: user.id, email: user.email, created_at: user.created_at } });
 }
 
 async function handleGetPicksToday(request, env) {
-  const supabaseUser = await getSupabaseUser(request, env);
-  let isPremium = false;
+  const url = new URL(request.url);
+  const buyerToken = url.searchParams.get('buyer_token') || '';
 
-  if (supabaseUser) {
-    const user = await getUserById(env.DB, supabaseUser.id);
-    isPremium = Boolean(user?.is_premium);
+  const todays = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(todays);
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyerToken);
+
+  const todaysIds = new Set(todays.map((p) => p.id));
+  const missingUnlockedIds = [...unlockedIds].filter((id) => !todaysIds.has(id));
+
+  let picks = todays;
+  if (missingUnlockedIds.length > 0) {
+    const olderUnlocked = await getPicksByIds(env.DB, missingUnlockedIds);
+    picks = picks.concat(olderUnlocked);
   }
 
-  const picks = await getPicks(env.DB, isPremium ? {} : { sinceDays: 7 });
-  return json({ picks });
+  const shaped = picks
+    .map((pick) => {
+      const locked = pick.id !== freeId && !unlockedIds.has(pick.id);
+      if (!locked) {
+        return { ...pick, locked: false };
+      }
+      const { pick_text, affiliate_link, ...rest } = pick;
+      return { ...rest, locked: true, price_cents: priceForConfidence(pick.confidence) };
+    })
+    .sort((a, b) => {
+      if (a.created_at < b.created_at) return 1;
+      if (a.created_at > b.created_at) return -1;
+      return 0;
+    });
+
+  return json({ picks: shaped });
 }
 
 async function handleAdminListPicks(request, env) {
@@ -104,6 +139,129 @@ async function handleAdminDeletePick(request, env, id) {
   return json({ success: true });
 }
 
+async function handleCheckoutPick(request, env) {
+  const { pick_id, buyer_token } = await request.json();
+  if (!pick_id || !buyer_token) {
+    return json({ error: 'pick_id and buyer_token are required' }, 400);
+  }
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(picks);
+  const pick = picks.find((p) => p.id === pick_id);
+
+  if (!pick || pick.id === freeId) {
+    return json({ error: 'Pick not found or not purchasable' }, 400);
+  }
+
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
+  if (unlockedIds.has(pick.id)) {
+    return json({ error: 'Pick already unlocked' }, 400);
+  }
+
+  const origin = new URL(request.url).origin;
+  const priceCents = priceForConfidence(pick.confidence);
+
+  let session;
+  try {
+    session = await createCheckoutSession(env, {
+      lineItems: [
+        {
+          price_data: {
+            currency: 'usd',
+            unit_amount: priceCents,
+            product_data: { name: `${pick.author} pick: ${pick.game}` },
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { buyer_token, pick_ids: String(pick.id) },
+      successUrl: `${origin}/picks?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/picks`,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  return json({ url: session.url });
+}
+
+async function handleCheckoutBundle(request, env) {
+  const { pick_ids, buyer_token } = await request.json();
+  if (!Array.isArray(pick_ids) || pick_ids.length === 0 || !buyer_token) {
+    return json({ error: 'pick_ids (non-empty array) and buyer_token are required' }, 400);
+  }
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  const freeId = freePickId(picks);
+  const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
+  const purchasable = picks.filter(
+    (p) => pick_ids.includes(p.id) && p.id !== freeId && !unlockedIds.has(p.id)
+  );
+
+  if (purchasable.length === 0) {
+    return json({ error: 'No purchasable picks in pick_ids' }, 400);
+  }
+
+  const origin = new URL(request.url).origin;
+  const lineItems = purchasable.map((pick) => ({
+    price_data: {
+      currency: 'usd',
+      unit_amount: bundlePrice(priceForConfidence(pick.confidence)),
+      product_data: { name: `${pick.author} pick: ${pick.game}` },
+    },
+    quantity: 1,
+  }));
+
+  let session;
+  try {
+    session = await createCheckoutSession(env, {
+      lineItems,
+      metadata: { buyer_token, pick_ids: purchasable.map((p) => p.id).join(',') },
+      successUrl: `${origin}/picks?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/picks`,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  return json({ url: session.url });
+}
+
+async function handleCheckoutConfirm(request, env) {
+  const url = new URL(request.url);
+  const sessionId = url.searchParams.get('session_id');
+  const buyerToken = url.searchParams.get('buyer_token');
+
+  if (!sessionId || !buyerToken) {
+    return json({ error: 'session_id and buyer_token are required' }, 400);
+  }
+
+  let session;
+  try {
+    session = await retrieveCheckoutSession(env, sessionId);
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  if (session.payment_status !== 'paid') {
+    return json({ error: 'Payment not confirmed' }, 402);
+  }
+  if (session.metadata?.buyer_token !== buyerToken) {
+    return json({ error: 'buyer_token does not match this session' }, 400);
+  }
+
+  if (!session.metadata?.pick_ids) {
+    return json({ error: 'Session has no associated picks' }, 400);
+  }
+  const pickIds = session.metadata.pick_ids.split(',').map(Number).filter(Number.isInteger);
+  if (pickIds.length === 0) {
+    return json({ error: 'Session has no associated picks' }, 400);
+  }
+  await insertUnlocks(env.DB, { buyerToken, pickIds, stripeSessionId: sessionId });
+
+  return json({ unlocked_pick_ids: pickIds });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -125,6 +283,15 @@ export default {
       }
       if (pathname === '/api/picks/today' && request.method === 'GET') {
         return await handleGetPicksToday(request, env);
+      }
+      if (pathname === '/api/checkout/pick' && request.method === 'POST') {
+        return await handleCheckoutPick(request, env);
+      }
+      if (pathname === '/api/checkout/bundle' && request.method === 'POST') {
+        return await handleCheckoutBundle(request, env);
+      }
+      if (pathname === '/api/checkout/confirm' && request.method === 'GET') {
+        return await handleCheckoutConfirm(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);

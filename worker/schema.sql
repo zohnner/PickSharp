@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS pick_unlocks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  buyer_token TEXT NOT NULL,
+  pick_id INTEGER NOT NULL,
+  stripe_session_id TEXT NOT NULL,
+  unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (pick_id) REFERENCES picks(id),
+  UNIQUE (stripe_session_id, pick_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pick_unlocks_buyer ON pick_unlocks(buyer_token);
 CREATE INDEX IF NOT EXISTS idx_picks_created_at ON picks(created_at);
 
 -- Seed data: hardcoded MVP test picks
