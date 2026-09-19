@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PickCard from '../components/PickCard.jsx';
 import { getBuyerToken } from '../lib/buyerToken.js';
-import { getTodaysPicks, checkoutBundle, confirmCheckout } from '../lib/api.js';
+import { getTodaysPicks, checkoutBundle, confirmCheckout, trackSource } from '../lib/api.js';
 
 export default function Picks() {
   const [picks, setPicks] = useState([]);
@@ -39,6 +39,12 @@ export default function Picks() {
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
+    const ref = searchParams.get('ref');
+    if (ref) {
+      trackSource(buyerToken, ref).catch(() => {
+        // Non-critical: attribution tracking failing shouldn't block the page.
+      });
+    }
     if (sessionId) {
       runConfirm(sessionId);
     } else {
