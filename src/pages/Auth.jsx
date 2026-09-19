@@ -72,7 +72,7 @@ export default function Auth({ session, loadingSession }) {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700 disabled:opacity-60"
+          className="w-full rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-sharp-700 disabled:opacity-60"
         >
           {submitting ? 'Please wait...' : mode === 'signup' ? 'Sign up' : 'Log in'}
         </button>

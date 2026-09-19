@@ -76,7 +76,7 @@ export default function AdminPanel() {
             onChange={(e) => setAdminSecret(e.target.value)}
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <button className="w-full rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white">
+          <button className="w-full rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-slate-900">
             Continue
           </button>
         </form>
@@ -142,7 +142,7 @@ export default function AdminPanel() {
         <button
           type="submit"
           disabled={submitting}
-          className="sm:col-span-2 rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700 disabled:opacity-60"
+          className="sm:col-span-2 rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-sharp-700 disabled:opacity-60"
         >
           {submitting ? 'Adding...' : 'Add Pick'}
         </button>

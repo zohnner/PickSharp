@@ -75,7 +75,7 @@ export default function PickCard({ pick, buyerToken }) {
         <button
           onClick={handleUnlock}
           disabled={isUnlocking}
-          className="mt-4 inline-flex items-center justify-center rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="mt-4 inline-flex items-center justify-center rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-sharp-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Unlock for ${(pick.price_cents / 100).toFixed(2)}
         </button>

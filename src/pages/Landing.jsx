@@ -13,7 +13,7 @@ export default function Landing() {
         </p>
         <Link
           to="/auth"
-          className="mt-8 inline-block rounded-md bg-sharp-600 px-6 py-3 text-base font-semibold text-white hover:bg-sharp-700"
+          className="mt-8 inline-block rounded-md bg-gradient-to-r from-sharp-500 to-sharp-700 px-6 py-3 text-base font-semibold text-slate-900 shadow-sm hover:from-sharp-600 hover:to-sharp-900"
         >
           Get Free Picks
         </Link>

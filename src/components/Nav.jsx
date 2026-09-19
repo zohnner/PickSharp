@@ -34,7 +34,7 @@ export default function Nav({ session }) {
           ) : (
             <Link
               to="/auth"
-              className="rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sharp-700"
+              className="rounded-md bg-gradient-to-r from-sharp-500 to-sharp-700 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:from-sharp-600 hover:to-sharp-900"
             >
               Get Free Picks
             </Link>
