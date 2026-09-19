@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS picks (
   game TEXT NOT NULL,
   game_time TEXT NOT NULL,
   affiliate_link TEXT NOT NULL DEFAULT 'https://ak.draftkings.com',
+  slot TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -49,9 +50,11 @@ CREATE INDEX IF NOT EXISTS idx_pick_unlocks_buyer ON pick_unlocks(buyer_token);
 CREATE INDEX IF NOT EXISTS idx_picks_created_at ON picks(created_at);
 
 CREATE TABLE IF NOT EXISTS daily_posts (
-  date TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  slot TEXT NOT NULL,
   posted_at TEXT NOT NULL DEFAULT (datetime('now')),
-  tweet_id TEXT NOT NULL
+  tweet_id TEXT NOT NULL,
+  PRIMARY KEY (date, slot)
 );
 
 CREATE TABLE IF NOT EXISTS buyer_sources (
