@@ -70,7 +70,12 @@ export async function postTweet(env, text) {
     body: JSON.stringify({ text }),
   });
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`X API request failed: ${res.status} ${res.statusText}`);
+  }
   if (!res.ok) {
     throw new Error(data.detail || data.title || `X API request failed: ${res.status}`);
   }
