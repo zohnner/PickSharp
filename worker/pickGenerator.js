@@ -17,8 +17,12 @@ Respond with ONLY a JSON array (no markdown formatting, no code fences, no expla
 
 function extractJson(text) {
   const trimmed = text.trim();
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  return fenceMatch ? fenceMatch[1] : trimmed;
+  const start = trimmed.indexOf('[');
+  const end = trimmed.lastIndexOf(']');
+  if (start === -1 || end === -1 || end < start) {
+    return trimmed;
+  }
+  return trimmed.slice(start, end + 1);
 }
 
 function validatePick(pick) {
