@@ -302,6 +302,17 @@ async function handleDailyPostCheck(env) {
     .run();
 }
 
+async function handleTrackSource(request, env) {
+  const { buyer_token, source } = await request.json();
+  if (!buyer_token || !source) {
+    return json({ error: 'buyer_token and source are required' }, 400);
+  }
+  await env.DB.prepare('INSERT OR IGNORE INTO buyer_sources (buyer_token, source) VALUES (?, ?)')
+    .bind(buyer_token, source)
+    .run();
+  return json({ ok: true });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -332,6 +343,9 @@ export default {
       }
       if (pathname === '/api/checkout/confirm' && request.method === 'GET') {
         return await handleCheckoutConfirm(request, env);
+      }
+      if (pathname === '/api/track-source' && request.method === 'POST') {
+        return await handleTrackSource(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
