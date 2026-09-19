@@ -12,6 +12,8 @@ import {
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
+import { composeTweet } from './tweetCopy.js';
+import { postTweet } from './x.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -262,6 +264,44 @@ async function handleCheckoutConfirm(request, env) {
   return json({ unlocked_pick_ids: pickIds });
 }
 
+const QUIET_PERIOD_MINUTES = 15;
+
+async function handleDailyPostCheck(env) {
+  const alreadyPosted = await env.DB.prepare(
+    `SELECT 1 FROM daily_posts WHERE date = date('now')`
+  ).first();
+  if (alreadyPosted) return;
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  if (picks.length === 0) return;
+
+  const newestRow = await env.DB.prepare(
+    `SELECT MAX(created_at) AS newest FROM picks WHERE date(created_at) = date('now')`
+  ).first();
+  const minutesRow = await env.DB.prepare(
+    `SELECT (julianday('now') - julianday(?)) * 24 * 60 AS minutes_since`
+  )
+    .bind(newestRow.newest)
+    .first();
+  if (minutesRow.minutes_since < QUIET_PERIOD_MINUTES) return;
+
+  const freeId = freePickId(picks);
+  const freePick = picks.find((p) => p.id === freeId);
+  const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
+
+  let tweetId;
+  try {
+    tweetId = await postTweet(env, tweetText);
+  } catch (err) {
+    console.error('Failed to post daily tweet:', err.message);
+    return;
+  }
+
+  await env.DB.prepare(`INSERT INTO daily_posts (date, tweet_id) VALUES (date('now'), ?)`)
+    .bind(tweetId)
+    .run();
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -312,5 +352,9 @@ export default {
     } catch (err) {
       return json({ error: err.message || 'Internal error' }, 500);
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(handleDailyPostCheck(env));
   },
 };
