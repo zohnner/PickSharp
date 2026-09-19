@@ -17,15 +17,27 @@ export async function getPicks(db, { sinceDays } = {}) {
 }
 
 export async function insertPick(db, pick) {
-  const { author, pick_text, pick_type, confidence, game, game_time, affiliate_link } = pick;
+  const { author, pick_text, pick_type, confidence, game, game_time, affiliate_link, slot } = pick;
   const result = await db
     .prepare(
-      `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, affiliate_link)
-       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'https://ak.draftkings.com'))`
+      `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, affiliate_link, slot)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'https://ak.draftkings.com'), ?)`
     )
-    .bind(author, pick_text, pick_type, confidence, game, game_time, affiliate_link || null)
+    .bind(author, pick_text, pick_type, confidence, game, game_time, affiliate_link || null, slot || 'manual')
     .run();
   return result.meta.last_row_id;
+}
+
+export async function insertGeneratedPicks(db, picks, slot) {
+  const stmts = picks.map((pick) =>
+    db
+      .prepare(
+        `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, slot)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(pick.author, pick.pick_text, pick.pick_type, pick.confidence, pick.game, pick.game_time, slot)
+  );
+  await db.batch(stmts);
 }
 
 export async function deletePickById(db, id) {
@@ -52,7 +64,7 @@ export async function getTodaysPicksRaw(db) {
   const { results } = await db
     .prepare(
       `SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
-              p.affiliate_link, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+              p.affiliate_link, p.slot, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
        FROM picks p
        LEFT JOIN picker_stats s ON s.author = p.author
        WHERE date(p.created_at, '-4 hours') = date('now', '-4 hours')
