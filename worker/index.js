@@ -29,9 +29,17 @@ function json(data, status = 200) {
   });
 }
 
-function requireAdmin(request, env) {
+async function requireAdmin(request, env) {
   const secret = request.headers.get('x-admin-secret');
-  return secret && env.ADMIN_SECRET && secret === env.ADMIN_SECRET;
+  if (secret && env.ADMIN_SECRET && secret === env.ADMIN_SECRET) return true;
+
+  if (!env.ADMIN_EMAILS) return false;
+  const user = await getSupabaseUser(request, env);
+  if (!user?.email) return false;
+  const allowlist = env.ADMIN_EMAILS.split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return allowlist.includes(user.email.toLowerCase());
 }
 
 function isStale(pick) {
@@ -141,13 +149,13 @@ async function handleGetPicksToday(request, env) {
 }
 
 async function handleAdminListPicks(request, env) {
-  if (!requireAdmin(request, env)) return json({ error: 'Unauthorized' }, 401);
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const picks = await getPicks(env.DB, {});
   return json({ picks });
 }
 
 async function handleAdminCreatePick(request, env) {
-  if (!requireAdmin(request, env)) return json({ error: 'Unauthorized' }, 401);
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const pick = await request.json();
 
   if (!pick.author || !pick.pick_text || !pick.pick_type || !pick.confidence || !pick.game || !pick.game_time) {
@@ -162,7 +170,7 @@ async function handleAdminCreatePick(request, env) {
 }
 
 async function handleAdminDeletePick(request, env, id) {
-  if (!requireAdmin(request, env)) return json({ error: 'Unauthorized' }, 401);
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   await deletePickById(env.DB, id);
   return json({ success: true });
 }
@@ -340,7 +348,7 @@ async function handleDailyPostCheck(env) {
 }
 
 async function handlePostSlot(request, env) {
-  if (!requireAdmin(request, env)) return json({ error: 'Unauthorized' }, 401);
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const { slot } = await request.json();
   if (!slot) return json({ error: 'slot is required' }, 400);
 

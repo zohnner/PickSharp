@@ -33,7 +33,7 @@ export default function App() {
           <Route path="/picks" element={<Picks />} />
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />
           <Route path="/dashboard" element={<Dashboard session={session} />} />
-          <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/admin" element={<AdminPanel session={session} loadingSession={loadingSession} />} />
         </Routes>
       </main>
       <Footer />

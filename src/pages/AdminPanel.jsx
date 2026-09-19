@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Navigate, Link } from 'react-router-dom';
 import { addPick, deletePick, listAllPicks } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
@@ -13,41 +14,44 @@ const emptyForm = {
   confidence: 'medium',
 };
 
-export default function AdminPanel() {
-  const [adminSecret, setAdminSecret] = useState(() => sessionStorage.getItem('sharp_admin_secret') || '');
+export default function AdminPanel({ session, loadingSession }) {
   const [form, setForm] = useState(emptyForm);
   const [picks, setPicks] = useState([]);
   const [error, setError] = useState(null);
+  const [notAuthorized, setNotAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
-  const loadPicks = async (secret) => {
+  const loadPicks = async () => {
     try {
-      const data = await listAllPicks(secret);
+      const data = await listAllPicks();
       setPicks(data.picks || []);
       setError(null);
+      setNotAuthorized(false);
     } catch (err) {
-      setError(err.message);
+      if (err.status === 401) {
+        setNotAuthorized(true);
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoadedOnce(true);
     }
   };
 
   useEffect(() => {
-    if (adminSecret) loadPicks(adminSecret);
-  }, [adminSecret]);
-
-  const handleUnlock = (e) => {
-    e.preventDefault();
-    sessionStorage.setItem('sharp_admin_secret', adminSecret);
-    loadPicks(adminSecret);
-  };
+    if (session) loadPicks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      await addPick(form, adminSecret);
+      await addPick(form);
       setForm(emptyForm);
-      await loadPicks(adminSecret);
+      await loadPicks();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -57,29 +61,31 @@ export default function AdminPanel() {
 
   const handleDelete = async (id) => {
     try {
-      await deletePick(id, adminSecret);
-      await loadPicks(adminSecret);
+      await deletePick(id);
+      await loadPicks();
     } catch (err) {
       setError(err.message);
     }
   };
 
-  if (!picks.length && !error) {
+  if (loadingSession || (session && !loadedOnce)) {
+    return <div className="mx-auto max-w-sm px-4 py-16 text-sm text-neutral-500">Loading...</div>;
+  }
+
+  if (!session) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (notAuthorized) {
     return (
       <div className="mx-auto max-w-sm px-4 py-16">
-        <h1 className="text-xl font-bold text-white">Admin unlock</h1>
-        <form onSubmit={handleUnlock} className="mt-4 space-y-3">
-          <input
-            type="password"
-            placeholder="Admin secret"
-            value={adminSecret}
-            onChange={(e) => setAdminSecret(e.target.value)}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
-          />
-          <button className="w-full rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-neutral-900">
-            Continue
-          </button>
-        </form>
+        <h1 className="text-xl font-bold text-white">Not authorized</h1>
+        <p className="mt-2 text-sm text-neutral-500">
+          You're logged in as {session.user.email}, but this account isn't an admin.
+        </p>
+        <Link to="/" className="mt-4 inline-block text-sm text-sharp-500 hover:underline">
+          Back to home
+        </Link>
       </div>
     );
   }

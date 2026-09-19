@@ -13,7 +13,9 @@ async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    const err = new Error(body.error || `Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   return body;
 }
@@ -29,25 +31,26 @@ export async function getCurrentUser() {
   return request('/user/me', { headers });
 }
 
-export async function addPick(pick, adminSecret) {
+export async function addPick(pick) {
+  const headers = await authHeaders();
   return request('/admin/picks', {
     method: 'POST',
-    headers: { 'x-admin-secret': adminSecret },
+    headers,
     body: JSON.stringify(pick),
   });
 }
 
-export async function deletePick(id, adminSecret) {
+export async function deletePick(id) {
+  const headers = await authHeaders();
   return request(`/admin/picks/${id}`, {
     method: 'DELETE',
-    headers: { 'x-admin-secret': adminSecret },
+    headers,
   });
 }
 
-export async function listAllPicks(adminSecret) {
-  return request('/admin/picks', {
-    headers: { 'x-admin-secret': adminSecret },
-  });
+export async function listAllPicks() {
+  const headers = await authHeaders();
+  return request('/admin/picks', { headers });
 }
 
 export async function checkoutPick(pickId, buyerToken) {

@@ -29,6 +29,7 @@ database_name = "sharpflow-db"
 SUPABASE_URL = "https://xnubjcrvkjxhtbkgfkaz.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_0pE2OkqdMUv2Pr0WppR_nw_8tfIMhuG"
 PUBLIC_SITE_URL = "https://wepicksharp.com"
+ADMIN_EMAILS = "zohnwheeler@gmail.com"
 
 [triggers]
 crons = ["*/5 * * * *"]
