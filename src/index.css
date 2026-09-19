@@ -7,5 +7,5 @@ html, body, #root {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply bg-neutral-950 text-neutral-100;
 }
