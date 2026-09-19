@@ -67,7 +67,11 @@ export default function PickCard({ pick, buyerToken }) {
         </p>
       </div>
 
-      {pick.locked ? (
+      {pick.game_started ? (
+        <p className="mt-4 inline-flex items-center justify-center rounded-md bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">
+          Game started
+        </p>
+      ) : pick.locked ? (
         <button
           onClick={handleUnlock}
           disabled={isUnlocking}

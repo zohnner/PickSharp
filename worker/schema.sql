@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS picks (
   game_time TEXT NOT NULL,
   affiliate_link TEXT NOT NULL DEFAULT 'https://ak.draftkings.com',
   slot TEXT,
+  game_time_utc TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

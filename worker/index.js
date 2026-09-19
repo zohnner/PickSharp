@@ -14,6 +14,7 @@ import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
+import { getUpcomingOdds } from './oddsApi.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +32,26 @@ function json(data, status = 200) {
 function requireAdmin(request, env) {
   const secret = request.headers.get('x-admin-secret');
   return secret && env.ADMIN_SECRET && secret === env.ADMIN_SECRET;
+}
+
+function isStale(pick) {
+  return Boolean(pick.game_time_utc) && pick.game_time_utc <= new Date().toISOString();
+}
+
+function matchesRealGame(pick, oddsGames) {
+  if (!pick.game_time_utc) return true;
+  const pickTime = new Date(pick.game_time_utc).getTime();
+  if (Number.isNaN(pickTime)) return true;
+  const toleranceMs = 3 * 60 * 60 * 1000;
+  const gameText = (pick.game || '').toLowerCase();
+
+  return oddsGames.some((g) => {
+    const commence = new Date(g.commence_time).getTime();
+    if (Number.isNaN(commence) || Math.abs(commence - pickTime) > toleranceMs) return false;
+    const home = (g.home_team || '').toLowerCase();
+    const away = (g.away_team || '').toLowerCase();
+    return Boolean(home) && Boolean(away) && gameText.includes(home) && gameText.includes(away);
+  });
 }
 
 async function getSupabaseUser(request, env) {
@@ -87,7 +108,8 @@ async function handleGetPicksToday(request, env) {
   const buyerToken = url.searchParams.get('buyer_token') || '';
 
   const todays = await getTodaysPicksRaw(env.DB);
-  const freeId = freePickId(todays);
+  const liveTodays = todays.filter((p) => !isStale(p));
+  const freeId = freePickId(liveTodays.length > 0 ? liveTodays : todays);
   const unlockedIds = await getUnlockedPickIds(env.DB, buyerToken);
 
   const todaysIds = new Set(todays.map((p) => p.id));
@@ -101,12 +123,13 @@ async function handleGetPicksToday(request, env) {
 
   const shaped = picks
     .map((pick) => {
-      const locked = pick.id !== freeId && !unlockedIds.has(pick.id);
+      const gameStarted = isStale(pick);
+      const locked = pick.id !== freeId && !unlockedIds.has(pick.id) && !gameStarted;
       if (!locked) {
-        return { ...pick, locked: false };
+        return { ...pick, locked: false, game_started: gameStarted };
       }
       const { pick_text, affiliate_link, ...rest } = pick;
-      return { ...rest, locked: true, price_cents: priceForConfidence(pick.confidence) };
+      return { ...rest, locked: true, game_started: gameStarted, price_cents: priceForConfidence(pick.confidence) };
     })
     .sort((a, b) => {
       if (a.created_at < b.created_at) return 1;
@@ -130,6 +153,9 @@ async function handleAdminCreatePick(request, env) {
   if (!pick.author || !pick.pick_text || !pick.pick_type || !pick.confidence || !pick.game || !pick.game_time) {
     return json({ error: 'Missing required pick fields' }, 400);
   }
+  if (pick.slot && pick.slot !== 'manual' && !pick.game_time_utc) {
+    return json({ error: 'game_time_utc is required for non-manual slots' }, 400);
+  }
 
   const id = await insertPick(env.DB, pick);
   return json({ id }, 201);
@@ -148,11 +174,15 @@ async function handleCheckoutPick(request, env) {
   }
 
   const picks = await getTodaysPicksRaw(env.DB);
-  const freeId = freePickId(picks);
+  const liveTodays = picks.filter((p) => !isStale(p));
+  const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const pick = picks.find((p) => p.id === pick_id);
 
   if (!pick || pick.id === freeId) {
     return json({ error: 'Pick not found or not purchasable' }, 400);
+  }
+  if (isStale(pick)) {
+    return json({ error: "This pick's game has already started" }, 400);
   }
 
   const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
@@ -194,10 +224,11 @@ async function handleCheckoutBundle(request, env) {
   }
 
   const picks = await getTodaysPicksRaw(env.DB);
-  const freeId = freePickId(picks);
+  const liveTodays = picks.filter((p) => !isStale(p));
+  const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const unlockedIds = await getUnlockedPickIds(env.DB, buyer_token);
   const purchasable = picks.filter(
-    (p) => pick_ids.includes(p.id) && p.id !== freeId && !unlockedIds.has(p.id)
+    (p) => pick_ids.includes(p.id) && p.id !== freeId && !unlockedIds.has(p.id) && !isStale(p)
   );
 
   if (purchasable.length === 0) {
@@ -320,7 +351,23 @@ async function handlePostSlot(request, env) {
     .first();
   if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
 
-  const picks = (await getTodaysPicksRaw(env.DB)).filter((p) => p.slot === slot);
+  let picks = (await getTodaysPicksRaw(env.DB)).filter((p) => p.slot === slot);
+  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+
+  if (slot !== 'manual') {
+    try {
+      const oddsGames = await getUpcomingOdds(env);
+      const ungrounded = picks.filter((p) => !matchesRealGame(p, oddsGames));
+      if (ungrounded.length > 0) {
+        await Promise.all(ungrounded.map((p) => deletePickById(env.DB, p.id)));
+        const ungroundedIds = new Set(ungrounded.map((p) => p.id));
+        picks = picks.filter((p) => !ungroundedIds.has(p.id));
+      }
+    } catch (err) {
+      // Verification-only fetch — a transient Odds API failure shouldn't block an otherwise-valid slot from posting.
+      console.error(`[${slot}] Grounding check skipped, odds fetch failed:`, err.message);
+    }
+  }
   if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
 
   if (!env.PUBLIC_SITE_URL) {
