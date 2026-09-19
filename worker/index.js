@@ -9,11 +9,14 @@ import {
   freePickId,
   getUnlockedPickIds,
   insertUnlocks,
+  insertGeneratedPicks,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
+import { getUpcomingOdds } from './oddsApi.js';
+import { generatePicks } from './pickGenerator.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -269,15 +272,15 @@ const QUIET_PERIOD_MINUTES = 15;
 
 async function handleDailyPostCheck(env) {
   const alreadyPosted = await env.DB.prepare(
-    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours')`
+    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = 'manual'`
   ).first();
   if (alreadyPosted) return;
 
-  const picks = await getTodaysPicksRaw(env.DB);
+  const picks = (await getTodaysPicksRaw(env.DB)).filter((p) => p.slot === 'manual' || p.slot === null);
   if (picks.length === 0) return;
 
   const newestRow = await env.DB.prepare(
-    `SELECT MAX(created_at) AS newest FROM picks WHERE date(created_at, '-4 hours') = date('now', '-4 hours')`
+    `SELECT MAX(created_at) AS newest FROM picks WHERE date(created_at, '-4 hours') = date('now', '-4 hours') AND (slot = 'manual' OR slot IS NULL)`
   ).first();
   const minutesRow = await env.DB.prepare(
     `SELECT (julianday('now') - julianday(?)) * 24 * 60 AS minutes_since`
@@ -303,10 +306,69 @@ async function handleDailyPostCheck(env) {
     throw err;
   }
 
-  await env.DB.prepare(`INSERT INTO daily_posts (date, tweet_id) VALUES (date('now', '-4 hours'), ?)`)
+  await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), 'manual', ?)`)
     .bind(tweetId)
     .run();
 }
+
+async function handleGenerateAndPost(env, slot) {
+  const alreadyPosted = await env.DB.prepare(
+    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
+  )
+    .bind(slot)
+    .first();
+  if (alreadyPosted) return;
+
+  let oddsData;
+  try {
+    oddsData = await getUpcomingOdds(env);
+  } catch (err) {
+    console.error(`[${slot}] Failed to fetch odds:`, err.message);
+    return;
+  }
+
+  let picks;
+  try {
+    picks = await generatePicks(env, oddsData);
+  } catch (err) {
+    console.error(`[${slot}] Failed to generate picks:`, err.message);
+    return;
+  }
+
+  try {
+    await insertGeneratedPicks(env.DB, picks, slot);
+  } catch (err) {
+    console.error(`[${slot}] Failed to insert generated picks:`, err.message);
+    return;
+  }
+
+  if (!env.PUBLIC_SITE_URL) {
+    console.error('PUBLIC_SITE_URL is not configured — cannot compose tweet link.');
+    throw new Error('PUBLIC_SITE_URL is not configured');
+  }
+
+  const freeIndex = picks.reduce(
+    (bestIdx, p, idx) =>
+      CONFIDENCE_RANK_FOR_FREE[p.confidence] < CONFIDENCE_RANK_FOR_FREE[picks[bestIdx].confidence] ? idx : bestIdx,
+    0
+  );
+  const freePick = picks[freeIndex];
+  const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
+
+  let tweetId;
+  try {
+    tweetId = await postTweet(env, tweetText);
+  } catch (err) {
+    console.error(`[${slot}] Failed to post tweet:`, err.message);
+    throw err;
+  }
+
+  await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), ?, ?)`)
+    .bind(slot, tweetId)
+    .run();
+}
+
+const CONFIDENCE_RANK_FOR_FREE = { low: 0, medium: 1, high: 2 };
 
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
@@ -381,6 +443,16 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleDailyPostCheck(env));
+    const CRON_SLOTS = {
+      '0 12 * * 4,6,0': 'morning',
+      '0 17 * * 4,6,0': 'midday',
+      '0 22 * * 4,6,0': 'evening',
+    };
+    const slot = CRON_SLOTS[event.cron];
+    if (slot) {
+      ctx.waitUntil(handleGenerateAndPost(env, slot));
+    } else {
+      ctx.waitUntil(handleDailyPostCheck(env));
+    }
   },
 };
