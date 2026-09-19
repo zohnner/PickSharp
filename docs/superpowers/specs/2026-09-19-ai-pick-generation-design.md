@@ -1,5 +1,15 @@
 # AI Pick Generation — Design Spec
 
+> **⚠ SUPERSEDED (2026-09-19): architecture pivot.** This spec's core mechanism — the Worker calling Anthropic's Messages API directly via `fetch` (Architecture → Data flow, step 2) — was rejected by the user: they will not enable pay-per-token Anthropic API billing. `worker/oddsApi.js` and `worker/pickGenerator.js` (built per this spec) have been deleted; the Worker no longer fetches odds or calls Anthropic itself.
+>
+> **New mechanism:** an external **Claude Code cloud routine**, scheduled via the `schedule` skill and billed against the user's existing Claude Code plan (not Anthropic API credits), performs the odds-fetch and pick-generation as its own agentic session, then calls back into the Worker: `POST /api/admin/picks` (pre-existing, unchanged) once per generated pick with an explicit `slot`, then `POST /api/admin/post-slot` (new, see commit `3d5ae29`) to trigger that slot's tweet.
+>
+> **Still valid from this spec:** the schema changes (`picks.slot`, `daily_posts` composite `(date, slot)` key), the slot-aware free-pick logic, the display behavior, the 5 fixed personas and their names, the `pick_type`/`confidence` enums, and every item under "Explicitly out of scope" and "Known risks" — none of that changed, only *where* generation happens changed.
+>
+> **No longer accurate:** the "Schedule" section's Cloudflare Cron Trigger firings (generation is no longer cron-triggered from the Worker — the cloud routine has its own independent schedule) and "Data flow per firing" steps 1-2 (no more direct Worker→Odds-API or Worker→Anthropic calls).
+>
+> Full rationale: `.superpowers/sdd/2026-09-19-ai-pick-generation/progress.md` (§ "Architecture pivot: Anthropic API billing rejected").
+
 ## Purpose
 
 Replace manual admin-panel pick entry with an autonomous pipeline: on a game-day schedule (Thursday/Saturday/Sunday, 3 slots/day — `morning`/`midday`/`evening`), a Cloudflare Worker pulls current NFL/NCAAF odds from an external API, asks Claude (via a direct Anthropic API call) to generate a batch of picks from that data, and inserts them into the existing `picks` table. The existing X growth bot (quiet-period cron + template tweet) then picks up the new content and posts automatically, unchanged in its own logic beyond becoming slot-aware.
