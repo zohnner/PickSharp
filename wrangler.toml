@@ -31,4 +31,4 @@ SUPABASE_ANON_KEY = "sb_publishable_0pE2OkqdMUv2Pr0WppR_nw_8tfIMhuG"
 PUBLIC_SITE_URL = "https://wepicksharp.com"
 
 [triggers]
-crons = ["*/5 * * * *", "0 12 * * 4,6,0", "0 17 * * 4,6,0", "0 22 * * 4,6,0"]
+crons = ["*/5 * * * *"]

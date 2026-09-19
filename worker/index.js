@@ -9,14 +9,11 @@ import {
   freePickId,
   getUnlockedPickIds,
   insertUnlocks,
-  insertGeneratedPicks,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
-import { getUpcomingOdds } from './oddsApi.js';
-import { generatePicks } from './pickGenerator.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -311,64 +308,42 @@ async function handleDailyPostCheck(env) {
     .run();
 }
 
-async function handleGenerateAndPost(env, slot) {
+async function handlePostSlot(request, env) {
+  if (!requireAdmin(request, env)) return json({ error: 'Unauthorized' }, 401);
+  const { slot } = await request.json();
+  if (!slot) return json({ error: 'slot is required' }, 400);
+
   const alreadyPosted = await env.DB.prepare(
     `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
   )
     .bind(slot)
     .first();
-  if (alreadyPosted) return;
+  if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
 
-  let oddsData;
-  try {
-    oddsData = await getUpcomingOdds(env);
-  } catch (err) {
-    console.error(`[${slot}] Failed to fetch odds:`, err.message);
-    return;
-  }
-
-  let picks;
-  try {
-    picks = await generatePicks(env, oddsData);
-  } catch (err) {
-    console.error(`[${slot}] Failed to generate picks:`, err.message);
-    return;
-  }
-
-  try {
-    await insertGeneratedPicks(env.DB, picks, slot);
-  } catch (err) {
-    console.error(`[${slot}] Failed to insert generated picks:`, err.message);
-    return;
-  }
+  const picks = (await getTodaysPicksRaw(env.DB)).filter((p) => p.slot === slot);
+  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
 
   if (!env.PUBLIC_SITE_URL) {
-    console.error('PUBLIC_SITE_URL is not configured — cannot compose tweet link.');
-    throw new Error('PUBLIC_SITE_URL is not configured');
+    return json({ error: 'PUBLIC_SITE_URL is not configured' }, 500);
   }
 
-  const freeIndex = picks.reduce(
-    (bestIdx, p, idx) =>
-      CONFIDENCE_RANK_FOR_FREE[p.confidence] < CONFIDENCE_RANK_FOR_FREE[picks[bestIdx].confidence] ? idx : bestIdx,
-    0
-  );
-  const freePick = picks[freeIndex];
+  const freeId = freePickId(picks);
+  const freePick = picks.find((p) => p.id === freeId);
   const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
 
   let tweetId;
   try {
     tweetId = await postTweet(env, tweetText);
   } catch (err) {
-    console.error(`[${slot}] Failed to post tweet:`, err.message);
-    throw err;
+    return json({ error: err.message }, 502);
   }
 
   await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), ?, ?)`)
     .bind(slot, tweetId)
     .run();
-}
 
-const CONFIDENCE_RANK_FOR_FREE = { low: 0, medium: 1, high: 2 };
+  return json({ tweet_id: tweetId, pick_count: picks.length });
+}
 
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
@@ -421,6 +396,9 @@ export default {
       if (pathname === '/api/track-source' && request.method === 'POST') {
         return await handleTrackSource(request, env);
       }
+      if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
+        return await handlePostSlot(request, env);
+      }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
       }
@@ -443,16 +421,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    const CRON_SLOTS = {
-      '0 12 * * 4,6,0': 'morning',
-      '0 17 * * 4,6,0': 'midday',
-      '0 22 * * 4,6,0': 'evening',
-    };
-    const slot = CRON_SLOTS[event.cron];
-    if (slot) {
-      ctx.waitUntil(handleGenerateAndPost(env, slot));
-    } else {
-      ctx.waitUntil(handleDailyPostCheck(env));
-    }
+    ctx.waitUntil(handleDailyPostCheck(env));
   },
 };
