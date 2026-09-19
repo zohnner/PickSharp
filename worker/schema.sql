@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS pick_unlocks (
 CREATE INDEX IF NOT EXISTS idx_pick_unlocks_buyer ON pick_unlocks(buyer_token);
 CREATE INDEX IF NOT EXISTS idx_picks_created_at ON picks(created_at);
 
+CREATE TABLE IF NOT EXISTS daily_posts (
+  date TEXT PRIMARY KEY,
+  posted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  tweet_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS buyer_sources (
+  buyer_token TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  first_seen TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Seed data: hardcoded MVP test picks
 INSERT OR IGNORE INTO picker_stats (author, win_rate) VALUES
   ('@CodyBrownBets', 55),

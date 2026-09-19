@@ -55,7 +55,7 @@ export async function getTodaysPicksRaw(db) {
               p.affiliate_link, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
        FROM picks p
        LEFT JOIN picker_stats s ON s.author = p.author
-       WHERE date(p.created_at) = date('now')
+       WHERE date(p.created_at, '-4 hours') = date('now', '-4 hours')
        ORDER BY p.created_at ASC`
     )
     .all();

@@ -69,3 +69,10 @@ export async function confirmCheckout(sessionId, buyerToken) {
     `/checkout/confirm?session_id=${encodeURIComponent(sessionId)}&buyer_token=${encodeURIComponent(buyerToken)}`
   );
 }
+
+export async function trackSource(buyerToken, source) {
+  return request('/track-source', {
+    method: 'POST',
+    body: JSON.stringify({ buyer_token: buyerToken, source }),
+  });
+}
