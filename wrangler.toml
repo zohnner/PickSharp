@@ -21,6 +21,9 @@ database_name = "sharpflow-db"
 # database_id intentionally omitted: Wrangler auto-provisions the D1 database
 # on first deploy and writes the id back into this file.
 
+[ai]
+binding = "AI"
+
 # SUPABASE_URL and SUPABASE_ANON_KEY are the project URL + publishable/anon key,
 # both safe to commit (same values already bundled into the frontend JS).
 # ADMIN_SECRET is sensitive and must be set separately in the Cloudflare dashboard:
@@ -34,4 +37,4 @@ POSTING_PAUSED = "true"
 AFFILIATE_LINK = "https://ak.draftkings.com"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "0 13 * * 4,6,0", "0 17 * * 4,6,0", "0 22 * * 4,6,0"]
