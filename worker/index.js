@@ -9,6 +9,7 @@ import {
   freePickId,
   getUnlockedPickIds,
   insertUnlocks,
+  isTweetIngested,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
@@ -21,6 +22,13 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-secret',
 };
+
+const TRACKED_AUTHORS = ['@CodyBrownBets', '@SharpFootball', '@jasonrmcintyre', '@DocsSports', '@nflpickspage'];
+
+function parseTweetId(url) {
+  const match = url.match(/status\/(\d+)/);
+  return match ? match[1] : null;
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -161,11 +169,33 @@ async function handleAdminCreatePick(request, env) {
   if (!pick.author || !pick.pick_text || !pick.pick_type || !pick.confidence || !pick.game || !pick.game_time) {
     return json({ error: 'Missing required pick fields' }, 400);
   }
-  if (pick.slot && pick.slot !== 'manual' && !pick.game_time_utc) {
-    return json({ error: 'game_time_utc is required for non-manual slots' }, 400);
+
+  let sourceTweetId = null;
+  if (pick.source_tweet_url) {
+    sourceTweetId = parseTweetId(pick.source_tweet_url);
+    if (!sourceTweetId) {
+      return json({ error: 'source_tweet_url must contain a status/<id> segment' }, 400);
+    }
+    if (!TRACKED_AUTHORS.includes(pick.author)) {
+      return json({ error: `author must be one of the tracked accounts: ${TRACKED_AUTHORS.join(', ')}` }, 400);
+    }
+    if (await isTweetIngested(env.DB, sourceTweetId)) {
+      return json({ error: 'This tweet has already been submitted' }, 400);
+    }
   }
 
-  const id = await insertPick(env.DB, pick);
+  const needsGameTimeUtc = (pick.slot && pick.slot !== 'manual') || sourceTweetId;
+  if (needsGameTimeUtc && !pick.game_time_utc) {
+    return json({ error: 'game_time_utc is required for non-manual slots and for picks with a source tweet' }, 400);
+  }
+
+  const id = await insertPick(env.DB, {
+    ...pick,
+    affiliate_link: pick.affiliate_link || env.AFFILIATE_LINK || null,
+    source_tweet_url: sourceTweetId ? pick.source_tweet_url : null,
+    source_tweet_id: sourceTweetId,
+    confidence: sourceTweetId ? 'medium' : pick.confidence,
+  });
   return json({ id }, 201);
 }
 
