@@ -19,7 +19,7 @@ import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds } from './oddsApi.js';
-import { fetchTweet, TweetNotFoundError } from './xVerify.js';
+import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
 import { computeConfidenceFromOdds } from './tiering.js';
 import { generatePicks } from './pickGenerator.js';
 
@@ -699,6 +699,49 @@ async function handleAdminFunnel(request, env) {
   return json(summary);
 }
 
+const PIPELINE_SLOTS = ['morning', 'midday', 'afternoon', 'evening'];
+
+// Derived entirely from existing data (picks + daily_posts) -- no new schema. Answers
+// "did each scheduled run actually work today" without digging through raw Cloudflare logs.
+async function handleAdminPipelineStatus(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+
+  const { results: postedRows } = await env.DB.prepare(
+    `SELECT slot, tweet_id FROM daily_posts WHERE date = date('now', '-4 hours')`
+  ).all();
+  const postedBySlot = new Map(postedRows.map((r) => [r.slot, r]));
+
+  const { results: pickCounts } = await env.DB.prepare(
+    `SELECT slot, COUNT(*) AS count FROM picks
+     WHERE date(created_at, '-4 hours') = date('now', '-4 hours') AND slot IS NOT NULL
+     GROUP BY slot`
+  ).all();
+  const countsBySlot = new Map(pickCounts.map((r) => [r.slot, r.count]));
+
+  const status = await Promise.all(
+    PIPELINE_SLOTS.map(async (slot) => {
+      const posted = postedBySlot.get(slot);
+      let metrics = null;
+      if (posted) {
+        try {
+          metrics = await fetchTweetMetrics(env, posted.tweet_id);
+        } catch (err) {
+          console.error(`[${slot}] Failed to fetch tweet metrics:`, err.message);
+        }
+      }
+      return {
+        slot,
+        picks_generated: countsBySlot.get(slot) || 0,
+        posted: Boolean(posted),
+        tweet_id: posted?.tweet_id || null,
+        metrics,
+      };
+    })
+  );
+
+  return json({ status });
+}
+
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
   if (!buyer_token || !source) {
@@ -755,6 +798,9 @@ export default {
       }
       if (pathname === '/api/admin/funnel' && request.method === 'GET') {
         return await handleAdminFunnel(request, env);
+      }
+      if (pathname === '/api/admin/pipeline-status' && request.method === 'GET') {
+        return await handleAdminPipelineStatus(request, env);
       }
       if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
         return await handlePostSlot(request, env);

@@ -50,6 +50,11 @@ export async function getFunnel() {
   return request('/admin/funnel', { headers });
 }
 
+export async function getPipelineStatus() {
+  const headers = await authHeaders();
+  return request('/admin/pipeline-status', { headers });
+}
+
 export async function verifySlot(slot) {
   const headers = await authHeaders();
   return request('/admin/verify-slot', {

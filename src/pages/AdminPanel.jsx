@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -31,6 +31,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifyResults, setVerifyResults] = useState(null);
   const [verifyError, setVerifyError] = useState(null);
   const [funnel, setFunnel] = useState(null);
+  const [pipeline, setPipeline] = useState(null);
 
   const loadPicks = async () => {
     try {
@@ -54,6 +55,11 @@ export default function AdminPanel({ session, loadingSession }) {
       loadPicks();
       getFunnel()
         .then(setFunnel)
+        .catch(() => {
+          // Non-critical: the rest of the admin panel still works without it.
+        });
+      getPipelineStatus()
+        .then((data) => setPipeline(data.status))
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
@@ -262,6 +268,28 @@ export default function AdminPanel({ session, loadingSession }) {
           </ul>
         )}
       </div>
+
+      {pipeline && (
+        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <span className="text-sm font-semibold text-white">Today's pipeline</span>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {pipeline.map((s) => (
+              <div key={s.slot} className="rounded-md border border-neutral-800 p-3 text-center">
+                <p className="text-xs uppercase text-neutral-500">{s.slot}</p>
+                <p className="mt-1 text-sm text-neutral-300">
+                  {s.picks_generated > 0 ? `✓ ${s.picks_generated} generated` : '— not yet'}
+                </p>
+                <p className="text-sm text-neutral-300">{s.posted ? '✓ posted' : '— not posted'}</p>
+                {s.metrics && (
+                  <p className="mt-1 text-xs text-neutral-500">
+                    {s.metrics.views ?? '?'} views · {s.metrics.likes} likes · {s.metrics.retweets} RTs
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {funnel && (
         <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
