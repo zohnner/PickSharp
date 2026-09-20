@@ -7,6 +7,8 @@ import Picks from './pages/Picks.jsx';
 import Auth from './pages/Auth.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
+import Terms from './pages/Terms.jsx';
+import Privacy from './pages/Privacy.jsx';
 import { supabase } from './lib/supabase.js';
 
 export default function App() {
@@ -34,6 +36,8 @@ export default function App() {
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />
           <Route path="/dashboard" element={<Dashboard session={session} />} />
           <Route path="/admin" element={<AdminPanel session={session} loadingSession={loadingSession} />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Routes>
       </main>
       <Footer />
