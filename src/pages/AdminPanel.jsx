@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
 const TRACKED_AUTHORS = ['@CodyBrownBets', '@SharpFootball', '@jasonrmcintyre', '@DocsSports', '@nflpickspage'];
-const SLOTS = ['manual', 'morning', 'midday', 'evening'];
+const SLOTS = ['manual', 'morning', 'midday', 'afternoon', 'evening'];
 
 const emptyForm = {
   author: TRACKED_AUTHORS[0],
@@ -30,6 +30,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifying, setVerifying] = useState(false);
   const [verifyResults, setVerifyResults] = useState(null);
   const [verifyError, setVerifyError] = useState(null);
+  const [funnel, setFunnel] = useState(null);
 
   const loadPicks = async () => {
     try {
@@ -49,7 +50,14 @@ export default function AdminPanel({ session, loadingSession }) {
   };
 
   useEffect(() => {
-    if (session) loadPicks();
+    if (session) {
+      loadPicks();
+      getFunnel()
+        .then(setFunnel)
+        .catch(() => {
+          // Non-critical: the rest of the admin panel still works without it.
+        });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
@@ -254,6 +262,26 @@ export default function AdminPanel({ session, loadingSession }) {
           </ul>
         )}
       </div>
+
+      {funnel && (
+        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <span className="text-sm font-semibold text-white">Today's funnel</span>
+          <div className="mt-2 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <p className="text-2xl font-bold text-white">{funnel.checkout_started}</p>
+              <p className="text-xs text-neutral-500">Checkouts started</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{funnel.checkout_completed}</p>
+              <p className="text-xs text-neutral-500">Purchases completed</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{funnel.affiliate_click}</p>
+              <p className="text-xs text-neutral-500">Affiliate clicks</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <h2 className="mt-10 text-lg font-semibold text-white">Current Picks</h2>
       <div className="mt-4 space-y-3">

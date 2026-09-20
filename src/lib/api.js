@@ -2,6 +2,11 @@ import { supabase } from './supabase.js';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+export function affiliateGoUrl(pickId, buyerToken) {
+  const params = new URLSearchParams({ pick_id: pickId, buyer_token: buyerToken || '' });
+  return `${BASE_URL}/go/affiliate?${params.toString()}`;
+}
+
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
@@ -38,6 +43,11 @@ export async function addPick(pick) {
     headers,
     body: JSON.stringify(pick),
   });
+}
+
+export async function getFunnel() {
+  const headers = await authHeaders();
+  return request('/admin/funnel', { headers });
 }
 
 export async function verifySlot(slot) {

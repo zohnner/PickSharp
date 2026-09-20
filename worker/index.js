@@ -11,6 +11,8 @@ import {
   insertUnlocks,
   isTweetIngested,
   markPickVerified,
+  logEvent,
+  getFunnelSummary,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
@@ -293,6 +295,8 @@ async function handleCheckoutPick(request, env) {
     return json({ error: err.message }, 502);
   }
 
+  await logEvent(env.DB, { eventType: 'checkout_started', pickId: pick.id, buyerToken: buyer_token });
+
   return json({ url: session.url });
 }
 
@@ -335,6 +339,10 @@ async function handleCheckoutBundle(request, env) {
   } catch (err) {
     return json({ error: err.message }, 502);
   }
+
+  await Promise.all(
+    purchasable.map((pick) => logEvent(env.DB, { eventType: 'checkout_started', pickId: pick.id, buyerToken: buyer_token }))
+  );
 
   return json({ url: session.url });
 }
@@ -668,6 +676,29 @@ async function handleGenerateSlot(request, env) {
   return json(result);
 }
 
+// Routes the affiliate CTA through the Worker instead of a direct <a href> so a click is
+// reliably logged even if the tab is backgrounded before any frontend beacon could fire.
+async function handleAffiliateGo(request, env) {
+  const url = new URL(request.url);
+  const pickId = url.searchParams.get('pick_id');
+  const buyerToken = url.searchParams.get('buyer_token');
+  const destination = env.AFFILIATE_LINK || 'https://ak.draftkings.com';
+
+  await logEvent(env.DB, {
+    eventType: 'affiliate_click',
+    pickId: pickId ? Number(pickId) : null,
+    buyerToken,
+  }).catch((err) => console.error('Failed to log affiliate_click event:', err.message));
+
+  return Response.redirect(destination, 302);
+}
+
+async function handleAdminFunnel(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const summary = await getFunnelSummary(env.DB);
+  return json(summary);
+}
+
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
   if (!buyer_token || !source) {
@@ -718,6 +749,12 @@ export default {
       }
       if (pathname === '/api/track-source' && request.method === 'POST') {
         return await handleTrackSource(request, env);
+      }
+      if (pathname === '/api/go/affiliate' && request.method === 'GET') {
+        return await handleAffiliateGo(request, env);
+      }
+      if (pathname === '/api/admin/funnel' && request.method === 'GET') {
+        return await handleAdminFunnel(request, env);
       }
       if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
         return await handlePostSlot(request, env);

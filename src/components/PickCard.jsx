@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { checkoutPick } from '../lib/api.js';
+import { checkoutPick, affiliateGoUrl } from '../lib/api.js';
 
 const TYPE_LABELS = {
   spread: 'Spread',
@@ -13,8 +13,6 @@ const CONFIDENCE_STYLES = {
   medium: 'bg-amber-900/40 text-amber-300',
   low: 'bg-neutral-800 text-neutral-400',
 };
-
-const DK_LINK = 'https://ak.draftkings.com';
 
 export default function PickCard({ pick, buyerToken }) {
   const winRate = pick.win_rate;
@@ -81,7 +79,7 @@ export default function PickCard({ pick, buyerToken }) {
         </button>
       ) : (
         <a
-          href={pick.affiliate_link || DK_LINK}
+          href={affiliateGoUrl(pick.id, buyerToken)}
           target="_blank"
           rel="noopener noreferrer sponsored"
           className="mt-4 inline-flex items-center justify-center rounded-md bg-neutral-100 px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-white"

@@ -32,12 +32,11 @@ CREATE TABLE IF NOT EXISTS picker_stats (
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_type TEXT NOT NULL,         -- e.g. 'affiliate_click', 'pick_view'
+  event_type TEXT NOT NULL,         -- 'checkout_started' | 'affiliate_click'
   pick_id INTEGER,
-  user_id TEXT,
+  buyer_token TEXT,                 -- most visitors never log in; track by buyer_token, not user_id
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (pick_id) REFERENCES picks(id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  FOREIGN KEY (pick_id) REFERENCES picks(id)
 );
 
 CREATE TABLE IF NOT EXISTS pick_unlocks (

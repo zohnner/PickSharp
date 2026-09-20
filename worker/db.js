@@ -54,6 +54,38 @@ export async function markPickVerified(db, id, confidence) {
   await db.prepare('UPDATE picks SET verified = 1, confidence = ? WHERE id = ?').bind(confidence, id).run();
 }
 
+export async function logEvent(db, { eventType, pickId, buyerToken }) {
+  await db
+    .prepare('INSERT INTO events (event_type, pick_id, buyer_token) VALUES (?, ?, ?)')
+    .bind(eventType, pickId || null, buyerToken || null)
+    .run();
+}
+
+export async function getFunnelSummary(db) {
+  const { results: eventCounts } = await db
+    .prepare(
+      `SELECT event_type, COUNT(*) AS count
+       FROM events
+       WHERE date(created_at, '-4 hours') = date('now', '-4 hours')
+       GROUP BY event_type`
+    )
+    .all();
+
+  const unlocks = await db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM pick_unlocks
+       WHERE date(unlocked_at, '-4 hours') = date('now', '-4 hours')`
+    )
+    .first();
+
+  const summary = { checkout_started: 0, affiliate_click: 0, checkout_completed: unlocks.count };
+  for (const row of eventCounts) {
+    summary[row.event_type] = row.count;
+  }
+  return summary;
+}
+
 export async function deletePickById(db, id) {
   await db.batch([
     db.prepare('DELETE FROM ingested_tweets WHERE tweet_id = (SELECT source_tweet_id FROM picks WHERE id = ?)').bind(id),
