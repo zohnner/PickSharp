@@ -10,12 +10,15 @@ import {
   getUnlockedPickIds,
   insertUnlocks,
   isTweetIngested,
+  markPickVerified,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds } from './oddsApi.js';
+import { fetchTweet, TweetNotFoundError } from './xVerify.js';
+import { computeConfidenceFromOdds } from './tiering.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -68,6 +71,20 @@ function matchesRealGame(pick, oddsGames) {
     const away = (g.away_team || '').toLowerCase();
     return Boolean(home) && Boolean(away) && gameText.includes(home) && gameText.includes(away);
   });
+}
+
+function verifiesAuthor(pick, tweetUsername) {
+  if (!tweetUsername) return false;
+  const expected = pick.author.replace(/^@/, '').toLowerCase();
+  return tweetUsername.toLowerCase() === expected;
+}
+
+function verifiesContent(pick, tweetText) {
+  const text = (tweetText || '').toLowerCase();
+  const numberMatch = (pick.pick_text || '').match(/-?\d+(\.\d+)?/);
+  if (numberMatch) return text.includes(numberMatch[0]);
+  const teams = (pick.game || '').toLowerCase().split(' @ ');
+  return teams.some((team) => team.trim() && text.includes(team.trim()));
 }
 
 async function getSupabaseUser(request, env) {
@@ -395,23 +412,55 @@ async function handlePostSlot(request, env) {
     .first();
   if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
 
-  let picks = (await getTodaysPicksRaw(env.DB)).filter((p) => p.slot === slot);
+  let picks = (await getTodaysPicksRaw(env.DB, { includeUnverified: true })).filter((p) => p.slot === slot);
   if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
 
-  if (slot !== 'manual') {
+  const needsOdds = slot !== 'manual' || picks.some((p) => p.source_tweet_id && !p.verified);
+  let oddsGames = null;
+  if (needsOdds) {
     try {
-      const oddsGames = await getUpcomingOdds(env);
-      const ungrounded = picks.filter((p) => !matchesRealGame(p, oddsGames));
-      if (ungrounded.length > 0) {
-        await Promise.all(ungrounded.map((p) => deletePickById(env.DB, p.id)));
-        const ungroundedIds = new Set(ungrounded.map((p) => p.id));
-        picks = picks.filter((p) => !ungroundedIds.has(p.id));
-      }
+      oddsGames = await getUpcomingOdds(env);
     } catch (err) {
-      // Verification-only fetch — a transient Odds API failure shouldn't block an otherwise-valid slot from posting.
-      console.error(`[${slot}] Grounding check skipped, odds fetch failed:`, err.message);
+      console.error(`[${slot}] Odds fetch failed, grounding/tiering skipped:`, err.message);
     }
   }
+
+  if (slot !== 'manual' && oddsGames) {
+    const ungrounded = picks.filter((p) => !matchesRealGame(p, oddsGames));
+    if (ungrounded.length > 0) {
+      await Promise.all(ungrounded.map((p) => deletePickById(env.DB, p.id)));
+      const ungroundedIds = new Set(ungrounded.map((p) => p.id));
+      picks = picks.filter((p) => !ungroundedIds.has(p.id));
+    }
+  }
+
+  const toVerify = picks.filter((p) => p.source_tweet_id && !p.verified);
+  for (const pick of toVerify) {
+    let tweet;
+    try {
+      tweet = await fetchTweet(env, pick.source_tweet_id);
+    } catch (err) {
+      if (err instanceof TweetNotFoundError) {
+        await deletePickById(env.DB, pick.id);
+        picks = picks.filter((p) => p.id !== pick.id);
+      } else {
+        console.error(`[${slot}] Tweet verification skipped for pick ${pick.id}, X API failed:`, err.message);
+      }
+      continue;
+    }
+
+    if (!verifiesAuthor(pick, tweet.username) || !verifiesContent(pick, tweet.text)) {
+      await deletePickById(env.DB, pick.id);
+      picks = picks.filter((p) => p.id !== pick.id);
+      continue;
+    }
+
+    const confidence = oddsGames ? computeConfidenceFromOdds(pick, oddsGames) : 'medium';
+    await markPickVerified(env.DB, pick.id, confidence);
+    pick.verified = 1;
+    pick.confidence = confidence;
+  }
+
   if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
 
   if (!env.PUBLIC_SITE_URL) {
