@@ -422,21 +422,13 @@ async function handleDailyPostCheck(env) {
     .run();
 }
 
-async function handlePostSlot(request, env) {
-  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
-  if (env.POSTING_PAUSED) return json({ error: 'Posting is paused until further notice' }, 503);
-  const { slot } = await request.json();
-  if (!slot) return json({ error: 'slot is required' }, 400);
-
-  const alreadyPosted = await env.DB.prepare(
-    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
-  )
-    .bind(slot)
-    .first();
-  if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
-
-  let picks = (await getTodaysPicksRaw(env.DB, { includeUnverified: true })).filter((p) => p.slot === slot);
-  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+// Shared by handlePostSlot and handleVerifySlot: runs grounding (real-game) and
+// source-tweet verification/tiering against `picks`, mutating DB rows and the
+// returned array in place. Does NOT filter out still-pending (unverified, not
+// deleted) source-tweet picks — callers decide what to do with those:
+// handlePostSlot excludes them from posting; handleVerifySlot reports on them.
+async function verifyAndTierPicks(env, slot, initialPicks) {
+  let picks = initialPicks;
 
   const needsOdds = slot !== 'manual' || picks.some((p) => p.source_tweet_id && !p.verified);
   let oddsGames = null;
@@ -507,6 +499,50 @@ async function handlePostSlot(request, env) {
   } else if (picks.some((p) => p.source_tweet_id && !p.verified)) {
     console.error(`[${slot}] Odds unavailable this run — deferring verification for all unverified source-tweet picks.`);
   }
+
+  return picks;
+}
+
+async function handleVerifySlot(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const { slot } = await request.json();
+  if (!slot) return json({ error: 'slot is required' }, 400);
+
+  const picks = (await getTodaysPicksRaw(env.DB, { includeUnverified: true })).filter((p) => p.slot === slot);
+  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+
+  const sourceIds = picks.filter((p) => p.source_tweet_id).map((p) => p.id);
+  const afterPicks = await verifyAndTierPicks(env, slot, picks);
+  const afterById = new Map(afterPicks.map((p) => [p.id, p]));
+
+  const results = sourceIds.map((id) => {
+    const pick = afterById.get(id);
+    if (!pick) return { id, status: 'deleted' };
+    return pick.verified
+      ? { id, status: 'verified', confidence: pick.confidence }
+      : { id, status: 'pending' };
+  });
+
+  return json({ slot, results });
+}
+
+async function handlePostSlot(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  if (env.POSTING_PAUSED) return json({ error: 'Posting is paused until further notice' }, 503);
+  const { slot } = await request.json();
+  if (!slot) return json({ error: 'slot is required' }, 400);
+
+  const alreadyPosted = await env.DB.prepare(
+    `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
+  )
+    .bind(slot)
+    .first();
+  if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
+
+  let picks = (await getTodaysPicksRaw(env.DB, { includeUnverified: true })).filter((p) => p.slot === slot);
+  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+
+  picks = await verifyAndTierPicks(env, slot, picks);
 
   // Safety net: no pick with a source tweet ever reaches posting logic unless it was
   // actually marked verified above, regardless of which path left it unverified.
@@ -589,6 +625,9 @@ export default {
       }
       if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
         return await handlePostSlot(request, env);
+      }
+      if (pathname === '/api/admin/verify-slot' && request.method === 'POST') {
+        return await handleVerifySlot(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);

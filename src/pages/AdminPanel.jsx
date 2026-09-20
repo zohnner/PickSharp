@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -26,6 +26,10 @@ export default function AdminPanel({ session, loadingSession }) {
   const [notAuthorized, setNotAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const [verifySlotChoice, setVerifySlotChoice] = useState(SLOTS[1]);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResults, setVerifyResults] = useState(null);
+  const [verifyError, setVerifyError] = useState(null);
 
   const loadPicks = async () => {
     try {
@@ -73,6 +77,21 @@ export default function AdminPanel({ session, loadingSession }) {
       await loadPicks();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const handleVerify = async () => {
+    setVerifying(true);
+    setVerifyError(null);
+    setVerifyResults(null);
+    try {
+      const data = await verifySlot(verifySlotChoice);
+      setVerifyResults(data.results || []);
+      await loadPicks();
+    } catch (err) {
+      setVerifyError(err.message);
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -192,6 +211,49 @@ export default function AdminPanel({ session, loadingSession }) {
       </form>
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+
+      <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <span className="text-sm font-semibold text-white">Verify a slot</span>
+        <select
+          value={verifySlotChoice}
+          onChange={(e) => setVerifySlotChoice(e.target.value)}
+          className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
+        >
+          {SLOTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleVerify}
+          disabled={verifying}
+          className="rounded-md bg-sharp-600 px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-sharp-700 disabled:opacity-60"
+        >
+          {verifying ? 'Verifying...' : 'Verify'}
+        </button>
+        <span className="text-xs text-neutral-500">
+          Checks source-tweet picks in this slot against the real tweet — never posts anything.
+        </span>
+        {verifyError && <p className="w-full text-sm text-red-400">{verifyError}</p>}
+        {verifyResults && (
+          <ul className="w-full space-y-1 text-sm">
+            {verifyResults.length === 0 && <li className="text-neutral-500">No source-tweet picks in this slot.</li>}
+            {verifyResults.map((r) => (
+              <li key={r.id}>
+                Pick {r.id}:{' '}
+                <span
+                  className={
+                    r.status === 'verified' ? 'text-green-400' : r.status === 'deleted' ? 'text-red-400' : 'text-yellow-400'
+                  }
+                >
+                  {r.status === 'verified' ? `✓ verified (${r.confidence})` : r.status === 'deleted' ? '✗ deleted' : '⏳ pending'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <h2 className="mt-10 text-lg font-semibold text-white">Current Picks</h2>
       <div className="mt-4 space-y-3">

@@ -40,6 +40,15 @@ export async function addPick(pick) {
   });
 }
 
+export async function verifySlot(slot) {
+  const headers = await authHeaders();
+  return request('/admin/verify-slot', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ slot }),
+  });
+}
+
 export async function deletePick(id) {
   const headers = await authHeaders();
   return request(`/admin/picks/${id}`, {
