@@ -29,8 +29,9 @@ const CORS_HEADERS = {
 const TRACKED_AUTHORS = ['@CodyBrownBets', '@SharpFootball', '@jasonrmcintyre', '@DocsSports', '@nflpickspage'];
 
 function parseTweetId(url) {
-  const match = url.match(/status\/(\d+)/);
-  return match ? match[1] : null;
+  if (typeof url !== 'string') return null;
+  const match = url.match(/^https?:\/\/(www\.)?(x|twitter)\.com\/[^/]+\/status\/(\d+)/);
+  return match ? match[3] : null;
 }
 
 function json(data, status = 200) {
@@ -79,12 +80,34 @@ function verifiesAuthor(pick, tweetUsername) {
   return tweetUsername.toLowerCase() === expected;
 }
 
+function extractTeams(pick) {
+  return (pick.game || '')
+    .toLowerCase()
+    .split(' @ ')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function extractNumberCandidates(pick, teams) {
+  const matches = (pick.pick_text || '').match(/\d+(\.\d+)?/g) || [];
+  return matches.filter((n) => !teams.some((team) => team.includes(n)));
+}
+
+function containsNumber(text, number) {
+  const escaped = number.replace('.', '\\.');
+  const re = new RegExp(`(^|[^0-9])${escaped}([^0-9]|$)`);
+  return re.test(text);
+}
+
 function verifiesContent(pick, tweetText) {
   const text = (tweetText || '').toLowerCase();
-  const numberMatch = (pick.pick_text || '').match(/-?\d+(\.\d+)?/);
-  if (numberMatch) return text.includes(numberMatch[0]);
-  const teams = (pick.game || '').toLowerCase().split(' @ ');
-  return teams.some((team) => team.trim() && text.includes(team.trim()));
+  const teams = extractTeams(pick);
+  const sideMatches = teams.some((team) => team && text.includes(team));
+  if (!sideMatches) return false;
+
+  const numberCandidates = extractNumberCandidates(pick, teams);
+  if (numberCandidates.length === 0) return true;
+  return numberCandidates.some((n) => containsNumber(text, n));
 }
 
 async function getSupabaseUser(request, env) {
@@ -161,7 +184,7 @@ async function handleGetPicksToday(request, env) {
       if (!locked) {
         return { ...pick, locked: false, game_started: gameStarted };
       }
-      const { pick_text, affiliate_link, ...rest } = pick;
+      const { pick_text, affiliate_link, source_tweet_url, source_tweet_id, ...rest } = pick;
       return { ...rest, locked: true, game_started: gameStarted, price_cents: priceForConfidence(pick.confidence) };
     })
     .sort((a, b) => {
@@ -434,32 +457,48 @@ async function handlePostSlot(request, env) {
     }
   }
 
-  const toVerify = picks.filter((p) => p.source_tweet_id && !p.verified);
-  for (const pick of toVerify) {
-    let tweet;
-    try {
-      tweet = await fetchTweet(env, pick.source_tweet_id);
-    } catch (err) {
-      if (err instanceof TweetNotFoundError) {
+  // Real market odds are required to compute a genuine price tier (not just to check
+  // this pick's own game) — without them, verification is deferred entirely this run
+  // rather than marking a pick verified with a placeholder tier that would then never
+  // be recomputed (verification only re-runs while verified=0).
+  if (oddsGames) {
+    const toVerify = picks.filter((p) => p.source_tweet_id && !p.verified);
+    for (const pick of toVerify) {
+      let tweet;
+      try {
+        tweet = await fetchTweet(env, pick.source_tweet_id);
+      } catch (err) {
+        if (err instanceof TweetNotFoundError) {
+          console.error(`[${slot}] Pick ${pick.id} (${pick.author}) deleted: source tweet not found.`);
+          await deletePickById(env.DB, pick.id);
+          picks = picks.filter((p) => p.id !== pick.id);
+        } else {
+          console.error(`[${slot}] Tweet verification skipped for pick ${pick.id}, X API failed:`, err.message);
+        }
+        continue;
+      }
+
+      if (!verifiesAuthor(pick, tweet.username) || !verifiesContent(pick, tweet.text)) {
+        console.error(
+          `[${slot}] Pick ${pick.id} deleted: claimed author "${pick.author}" / tweet author "${tweet.username}" or content did not verify against the real tweet.`
+        );
         await deletePickById(env.DB, pick.id);
         picks = picks.filter((p) => p.id !== pick.id);
-      } else {
-        console.error(`[${slot}] Tweet verification skipped for pick ${pick.id}, X API failed:`, err.message);
+        continue;
       }
-      continue;
-    }
 
-    if (!verifiesAuthor(pick, tweet.username) || !verifiesContent(pick, tweet.text)) {
-      await deletePickById(env.DB, pick.id);
-      picks = picks.filter((p) => p.id !== pick.id);
-      continue;
+      const confidence = computeConfidenceFromOdds(pick, oddsGames);
+      await markPickVerified(env.DB, pick.id, confidence);
+      pick.verified = 1;
+      pick.confidence = confidence;
     }
-
-    const confidence = oddsGames ? computeConfidenceFromOdds(pick, oddsGames) : 'medium';
-    await markPickVerified(env.DB, pick.id, confidence);
-    pick.verified = 1;
-    pick.confidence = confidence;
+  } else if (picks.some((p) => p.source_tweet_id && !p.verified)) {
+    console.error(`[${slot}] Odds unavailable this run — deferring verification for all unverified source-tweet picks.`);
   }
+
+  // Safety net: no pick with a source tweet ever reaches posting logic unless it was
+  // actually marked verified above, regardless of which path left it unverified.
+  picks = picks.filter((p) => !p.source_tweet_id || p.verified);
 
   if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
 

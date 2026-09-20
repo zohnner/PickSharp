@@ -55,7 +55,10 @@ export async function markPickVerified(db, id, confidence) {
 }
 
 export async function deletePickById(db, id) {
-  await db.prepare('DELETE FROM picks WHERE id = ?').bind(id).run();
+  await db.batch([
+    db.prepare('DELETE FROM ingested_tweets WHERE tweet_id = (SELECT source_tweet_id FROM picks WHERE id = ?)').bind(id),
+    db.prepare('DELETE FROM picks WHERE id = ?').bind(id),
+  ]);
 }
 
 export async function upsertUser(db, { id, email }) {
