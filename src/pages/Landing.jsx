@@ -5,11 +5,11 @@ export default function Landing() {
     <div>
       <section className="mx-auto max-w-6xl px-4 py-20 text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-          Curated NFL Picks, <span className="text-sharp-500">Aggregated in One Place</span>
+          NFL Picks, <span className="text-sharp-500">Grounded in Real Odds</span>
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-neutral-400">
-          We track the sharpest NFL handicappers on X so you don't have to. See today's picks, track their
-          accuracy, and bet with confidence.
+          PickSharp's own analysis scans live market data to find value on every NFL game day — every pick
+          checked against real odds before it's ever posted.
         </p>
         <Link
           to="/auth"
@@ -24,13 +24,15 @@ export default function Landing() {
           <div>
             <h3 className="text-lg font-semibold text-white">Today's Picks</h3>
             <p className="mt-2 text-sm text-neutral-400">
-              See spreads, moneylines, props, and totals from top NFL handicappers, updated daily.
+              Spreads, moneylines, props, and totals from PickSharp's own analysis, generated fresh on every
+              NFL game day.
             </p>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-white">Track Accuracy</h3>
+            <h3 className="text-lg font-semibold text-white">Grounded, Not Guessed</h3>
             <p className="mt-2 text-sm text-neutral-400">
-              Every picker's win rate is tracked so you know who's actually hitting.
+              Every pick is checked against real, live market odds before it's ever posted — no invented
+              lines, no games that aren't actually happening.
             </p>
           </div>
           <div>

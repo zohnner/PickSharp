@@ -71,7 +71,10 @@ export default function Picks() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
       <h1 className="text-2xl font-bold text-white">Today's Picks</h1>
-      <p className="mt-1 text-sm text-neutral-500">Curated from the sharpest NFL accounts on X.</p>
+      <p className="mt-1 text-sm text-neutral-500">
+        PickSharp's own AI-assisted analysis, grounded in real market odds — plus verified picks from real
+        accounts on X, with a link back to the source.
+      </p>
       <p className="mt-1 text-xs text-neutral-600">
         Unlocks are tied to this browser — they won't follow you to another device.
       </p>
