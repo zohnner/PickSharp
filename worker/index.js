@@ -406,7 +406,8 @@ async function handleDailyPostCheck(env) {
     throw new Error('PUBLIC_SITE_URL is not configured');
   }
 
-  const freeId = freePickId(picks);
+  const liveTodays = picks.filter((p) => !isStale(p));
+  const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const freePick = picks.find((p) => p.id === freeId);
   const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
 
@@ -556,7 +557,8 @@ async function postSlot(env, slot) {
     return { posted: false, reason: 'PUBLIC_SITE_URL is not configured', status: 500 };
   }
 
-  const freeId = freePickId(picks);
+  const liveTodays = picks.filter((p) => !isStale(p));
+  const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const freePick = picks.find((p) => p.id === freeId);
   const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
 
