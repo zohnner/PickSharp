@@ -73,10 +73,5 @@ CREATE TABLE IF NOT EXISTS buyer_sources (
   first_seen TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Seed data: hardcoded MVP test picks
-INSERT OR IGNORE INTO picker_stats (author, win_rate) VALUES
-  ('@CodyBrownBets', 55),
-  ('@SharpFootball', 55),
-  ('@jasonrmcintyre', 55),
-  ('@DocsSports', 55),
-  ('@nflpickspage', 55);
+-- No seed data: picker_stats rows are only ever inserted once a real win/loss
+-- track record exists for an author -- never a fabricated default.

@@ -17,7 +17,7 @@ const CONFIDENCE_STYLES = {
 const DK_LINK = 'https://ak.draftkings.com';
 
 export default function PickCard({ pick, buyerToken }) {
-  const winRate = pick.win_rate ?? 55;
+  const winRate = pick.win_rate;
   const [isUnlocking, setIsUnlocking] = useState(false);
 
   const handleUnlock = async () => {
@@ -40,7 +40,7 @@ export default function PickCard({ pick, buyerToken }) {
           </div>
           <div>
             <p className="font-semibold text-white">{pick.author}</p>
-            <p className="text-xs text-neutral-500">{winRate}% win rate</p>
+            <p className="text-xs text-neutral-500">{winRate != null ? `${winRate}% win rate` : 'Building track record'}</p>
           </div>
         </div>
         <span

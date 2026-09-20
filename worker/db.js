@@ -1,7 +1,7 @@
 export async function getPicks(db, { sinceDays } = {}) {
   let query = `
     SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
-           p.affiliate_link, p.slot, p.game_time_utc, p.source_tweet_url, p.source_tweet_id, p.verified, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+           p.affiliate_link, p.slot, p.game_time_utc, p.source_tweet_url, p.source_tweet_id, p.verified, p.created_at, s.win_rate AS win_rate
     FROM picks p
     LEFT JOIN picker_stats s ON s.author = p.author
   `;
@@ -83,7 +83,7 @@ export async function getTodaysPicksRaw(db, { includeUnverified = false } = {}) 
     .prepare(
       `SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
               p.affiliate_link, p.slot, p.game_time_utc, p.source_tweet_url, p.source_tweet_id, p.verified,
-              p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+              p.created_at, s.win_rate AS win_rate
        FROM picks p
        LEFT JOIN picker_stats s ON s.author = p.author
        WHERE date(p.created_at, '-4 hours') = date('now', '-4 hours')
@@ -113,7 +113,7 @@ export async function getPicksByIds(db, ids) {
   const { results } = await db
     .prepare(
       `SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
-              p.affiliate_link, p.game_time_utc, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+              p.affiliate_link, p.game_time_utc, p.created_at, s.win_rate AS win_rate
        FROM picks p
        LEFT JOIN picker_stats s ON s.author = p.author
        WHERE p.id IN (${placeholders})`
