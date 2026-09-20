@@ -307,6 +307,11 @@ async function handleCheckoutConfirm(request, env) {
 const QUIET_PERIOD_MINUTES = 15;
 
 async function handleDailyPostCheck(env) {
+  if (env.POSTING_PAUSED) {
+    console.log('Posting is paused (POSTING_PAUSED set) — skipping quiet-period check.');
+    return;
+  }
+
   const alreadyPosted = await env.DB.prepare(
     `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = 'manual'`
   ).first();
@@ -349,6 +354,7 @@ async function handleDailyPostCheck(env) {
 
 async function handlePostSlot(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  if (env.POSTING_PAUSED) return json({ error: 'Posting is paused until further notice' }, 503);
   const { slot } = await request.json();
   if (!slot) return json({ error: 'slot is required' }, 400);
 
