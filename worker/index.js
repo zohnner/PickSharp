@@ -720,12 +720,14 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    const GENERATION_CRONS = {
-      '0 13 * * 4,6,0': 'morning',
-      '0 17 * * 4,6,0': 'midday',
-      '0 22 * * 4,6,0': 'evening',
-    };
-    const slot = GENERATION_CRONS[event.cron];
+    // Derived from the actual fire time (event.scheduledTime), not a string match against
+    // event.cron -- Cloudflare's cron trigger API doesn't document whether it echoes back
+    // the configured cron expression verbatim or in some normalized form, and a mismatch
+    // there would silently break dispatch. Standard JS Date UTC semantics are unambiguous.
+    const SLOT_HOURS = { 13: 'morning', 17: 'midday', 22: 'evening' };
+    const fired = new Date(event.scheduledTime);
+    const isGenerationDay = [0, 4, 6].includes(fired.getUTCDay()); // Sun, Thu, Sat
+    const slot = isGenerationDay && fired.getUTCMinutes() === 0 ? SLOT_HOURS[fired.getUTCHours()] : undefined;
     if (slot) {
       ctx.waitUntil(generateForSlot(env, slot));
     } else {
