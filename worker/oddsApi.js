@@ -12,6 +12,17 @@ async function fetchSportOdds(env, sportKey) {
 }
 
 export async function getUpcomingOdds(env) {
-  const results = await Promise.all(SPORTS.map((sportKey) => fetchSportOdds(env, sportKey)));
-  return results.flat();
+  const results = await Promise.allSettled(SPORTS.map((sportKey) => fetchSportOdds(env, sportKey)));
+  const games = [];
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      games.push(...result.value);
+    } else {
+      console.error('Odds fetch failed for one sport, continuing with the rest:', result.reason?.message);
+    }
+  }
+  if (games.length === 0 && results.every((r) => r.status === 'rejected')) {
+    throw new Error('Odds fetch failed for every sport');
+  }
+  return games;
 }
