@@ -478,12 +478,24 @@ async function handlePostSlot(request, env) {
         continue;
       }
 
-      if (!verifiesAuthor(pick, tweet.username) || !verifiesContent(pick, tweet.text)) {
+      if (!verifiesAuthor(pick, tweet.username)) {
         console.error(
-          `[${slot}] Pick ${pick.id} deleted: claimed author "${pick.author}" / tweet author "${tweet.username}" or content did not verify against the real tweet.`
+          `[${slot}] Pick ${pick.id} deleted: claimed author "${pick.author}" does not match tweet author "${tweet.username}".`
         );
         await deletePickById(env.DB, pick.id);
         picks = picks.filter((p) => p.id !== pick.id);
+        continue;
+      }
+
+      if (!verifiesContent(pick, tweet.text)) {
+        // Content-only mismatches are left unverified rather than deleted: real tweets
+        // often abbreviate team names (e.g. "Chiefs" vs. the full name required in
+        // `game` for odds-API grounding), so a false negative here is expected and
+        // shouldn't destroy admin work. The pick stays invisible/unpostable (below)
+        // and can be retried on a later run.
+        console.error(
+          `[${slot}] Pick ${pick.id} left unverified: content did not match tweet text (author "${tweet.username}" confirmed correct).`
+        );
         continue;
       }
 
