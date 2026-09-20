@@ -1,5 +1,7 @@
 # Real Pick Aggregation — Design Spec
 
+> **⚠ AMENDED (2026-09-20): discovery moved from cloud routine to manual admin entry.** The cloud-routine sandbox that all 3 scheduled routines run in cannot reach *any* external domain — not third-party APIs, not `wepicksharp.com` itself — due to an organization-level network policy with no discoverable self-service control (confirmed via a live re-check after the user changed an "allow all domains" environment setting; still blocked identically). Rather than block Sunday's launch on that being resolved, **automated discovery is deferred** and this phase uses **manual admin-panel entry** instead: a human pastes a real tweet's URL in, the Worker (which has no egress restriction — it already calls Stripe/Supabase/Odds API/X successfully in production) does the re-fetch, verification, and tiering. Everything below except the "Discovery (routine)" section is unchanged from the original design; see the new "Intake (manual, admin panel)" section for what replaced it. Automated discovery can be added later as a pure addition once the sandbox issue is resolved — nothing about the manual path needs to change when that happens.
+
 ## Relationship to prior specs
 
 This spec **replaces** `docs/superpowers/specs/2026-09-19-ai-pick-generation-design.md` in full — not an extension of it, a different mechanism entirely. That spec (and its architecture-pivot addendum) covered generating fictional pick content and attributing it to 5 fixed personas. This spec covers the opposite: **never generating pick content**, only aggregating and attributing picks that one of those 5 accounts genuinely, verifiably posted.
@@ -10,12 +12,12 @@ Full rationale for the pivot: `.superpowers/sdd/2026-09-19-ai-pick-generation/pr
 
 The site's 5 fixed personas (`@CodyBrownBets`, `@SharpFootball`, `@jasonrmcintyre`, `@DocsSports`, `@nflpickspage`) are real, active, identifiable X accounts belonging to real people/businesses (e.g. `@jasonrmcintyre` is Jason McIntyre, a FOX Sports personality; `@SharpFootball` is Warren Sharp). The previous pipeline auto-generated fictional pick content and attributed it to these real handles — a false-endorsement/impersonation risk, already live in production via seed data.
 
-This design replaces that entirely: a scheduled routine monitors these 5 accounts' actual recent posts, identifies which look like genuine betting picks, extracts structured data from their real text, and submits it with a link back to the source tweet. A Worker-side verification step independently re-fetches the specific tweet and confirms both authorship and content before the pick is ever shown on the site or tweeted about — mirroring the existing odds-grounding-check pattern already shipped in `handlePostSlot`.
+This design replaces that entirely: real picks from these 5 accounts get entered (currently: manually, by an admin who spotted them — see the amendment note above) with a link back to the source tweet, never invented. A Worker-side verification step independently re-fetches the specific tweet and confirms both authorship and content before the pick is ever shown on the site or tweeted about — mirroring the existing odds-grounding-check pattern already shipped in `handlePostSlot`.
 
 **Explicitly out of scope / deliberately decided against:**
 - **No new persona discovery.** Still exactly these 5 tracked accounts; adding more is a future decision, not part of this work.
 - **No sentiment/tone-based confidence.** Real accounts don't self-label conviction the way the old fabricated pipeline did, and reading tone into a real person's tweet to price a product is its own risk. Confidence/price tier is derived from real market odds instead (see below), not language.
-- **No fully automated re-tweeting of arbitrary account content.** Only tweets that read as genuine picks (a game + a bet type) are candidates; general commentary, replies, and retweets are skipped by the routine's own judgment.
+- **No fully automated re-tweeting of arbitrary account content.** Only genuine picks (a game + a bet type) an admin has actually chosen to enter are candidates.
 - **`POSTING_PAUSED` is not lifted by this work.** The global kill switch (`worker/index.js` `handleDailyPostCheck`/`handlePostSlot`) stays enabled regardless of this pipeline's readiness. Resuming live posting is a separate, explicit decision.
 
 ## Architecture
@@ -44,16 +46,18 @@ Any pick with a `source_tweet_id` starts `verified = 0` and is **excluded** from
 
 `getTodaysPicksRaw` (`worker/db.js`) gets a `WHERE verified = 1 OR source_tweet_id IS NULL` clause added to its query.
 
-### Discovery (routine)
+### Intake (manual, admin panel)
 
-Same 3-slot schedule as today (`morning`/`midday`/`evening`, cron `0 13/17/22 * * 4,6,0`, Thu/Sat/Sun). Each firing:
+No routine involved. In the existing admin panel's pick-creation form (already gated by Supabase login / `ADMIN_EMAILS`):
 
-1. **Get last-seen state**: `GET /api/admin/last-seen-tweets` (new, admin-secret protected) returns `{ "@SharpFootball": "19812...", "@CodyBrownBets": null, ... }` — the most-recently-ingested `tweet_id` per tracked author, or `null` if never seen.
-2. **Read each account's recent tweets**: `GET /2/users/:id/tweets` (X API v2, app-only Bearer Token auth) per account, using each account's numeric user ID (resolved once, hardcoded into the routine prompt — handles don't change) with `since_id` from step 1 (omitted on an account's first-ever run) and `max_results=10`.
-3. **Identify genuine picks**: using its own reasoning, the routine judges which returned tweets read as an actual betting pick (mentions a game/team plus a spread, total, moneyline side, or player prop) versus commentary, replies, or retweets. Non-picks are skipped, not ingested.
-4. **Extract structured data** per identified tweet: `pick_type`, `game` (exact full team names — see Verification below for why this must match the odds API's naming verbatim, no abbreviations), `game_time_utc` (exact ISO 8601 kickoff time), `pick_text` (the specific selection), `source_tweet_url`, `source_tweet_id`. The routine may consult The Odds API (already-existing credential) to resolve an informal team reference in a tweet to the exact matching name/kickoff time. **No `confidence` is extracted** — that's computed Worker-side from real market data (see Tiering below), not invented by the routine.
-5. **Submit**: `POST /api/admin/picks` per extracted pick, with `author` = the real handle, `slot` = current slot, `source_tweet_url`/`source_tweet_id` included, and a placeholder `confidence: "medium"` (never shown — the pick is invisible until verification overwrites it).
-6. **Trigger the slot**: `POST /api/admin/post-slot` as today, unchanged call shape.
+1. The admin picks one of the 5 tracked accounts from a dropdown (not free text — keeps `author` constrained to the known set, same as today's `CHECK`-adjacent convention) and pastes the real tweet's URL.
+2. The admin manually fills in `pick_type`, `game` (exact full team names — same strict format the grounding check already expects, no abbreviations), `game_time_utc`, and `pick_text` by reading the actual tweet themselves — this is the same information a human already had to type for any manual pick today, just now sourced from a real tweet instead of invented.
+3. `source_tweet_id` is parsed client-side from the pasted URL (the trailing numeric segment of `x.com/<handle>/status/<id>`).
+4. **No `confidence` is entered by the admin** — submitted as a placeholder (`"medium"`), invisible until verification overwrites it. Keeping tiering odds-derived rather than admin-assigned preserves the original reasoning (an objective signal, not a subjective one) regardless of who's doing the sourcing.
+5. `POST /api/admin/picks` (existing endpoint, extended) accepts the new `source_tweet_url`/`source_tweet_id` fields alongside the existing ones, with `slot` set to whichever of `morning`/`midday`/`evening` is currently active (or `manual`, unaffected, if the admin isn't tagging it to a slot).
+6. When ready, the admin triggers `POST /api/admin/post-slot` for that slot as today — unchanged call shape, still blocked by `POSTING_PAUSED` until explicitly lifted.
+
+Automated discovery (a routine doing steps 1-3 on a schedule via X API reads) is the natural next addition once the cloud-routine sandbox can reach the internet — it would slot in ahead of step 5 without changing anything downstream.
 
 ### Verification + tiering (`handlePostSlot`, extended)
 
@@ -78,24 +82,23 @@ Only after this pass does the existing free-pick selection and tweet-posting log
 
 ### Dedup
 
-`ingested_tweets(tweet_id PK, author, ingested_at)` is written whenever `POST /api/admin/picks` receives a `source_tweet_id`, **regardless of the pick's later verification outcome** — once a tweet has been evaluated (passed or failed), it's never reprocessed. `GET /api/admin/last-seen-tweets` derives each account's `since_id` from its most-recent `ingested_tweets` row by `ingested_at`.
+`ingested_tweets(tweet_id PK, author, ingested_at)` is still written whenever `POST /api/admin/picks` receives a `source_tweet_id` — now serving as a duplicate-submission guard (reject/flag if the admin accidentally pastes the same tweet URL twice) rather than a `since_id` cursor for a routine. No `last-seen-tweets` endpoint is needed for this phase; it's deferred along with automated discovery.
 
 ### Credentials
 
-- New secret: `X_BEARER_TOKEN` (app-only auth, from the pay-per-use X developer account being set up) — used both by the Worker (verification re-fetch) and embedded in the routine's prompt (discovery reads), the same pattern as `ADMIN_SECRET`/`ODDS_API_KEY` today.
-- Routine tool access unchanged: `Bash` only, no repo write access.
-- The 3 existing routine prompts get rewritten to this discovery/extraction/submit flow, replacing their current pick-generation instructions.
+- New secret: `X_BEARER_TOKEN` (app-only auth) — used **only by the Worker**, for the `post-slot` verification re-fetch. Nothing routine-side needs it in this phase, since there's no routine involved.
+- No routine prompt changes in this phase — the 3 existing routines stay exactly as they are (still disabled, still carrying their old generation-style prompts) since they're not part of this flow at all right now.
 
 ### Cost
 
-At the existing 3-slot/Thu-Sat-Sun cadence, ~10 tweets/account/check × 5 accounts × ~39 checks/month ≈ 1,950 reads/month ≈ **$9.75/month** at X's $0.005/read pay-per-use rate, within the user's approved $10/month budget. `since_id`-scoped incremental fetching means actual usage will typically run well under this once the backfill period passes, since most checks will find only a few genuinely new tweets rather than re-reading the same 10. The Worker's own verification re-fetch (`GET /2/tweets/:id`) adds roughly 1 read per pick per `post-slot` call — negligible at this volume.
+At manual-curation volume (a human submitting a handful of picks around game days, not a scheduled bulk read), the only X API usage is the Worker's `post-slot` verification re-fetch — roughly 1 read per submitted pick. Even a busy NFL Sunday (dozens of picks) stays well under a dollar at $0.005/read. The $10/month budget discussed earlier was sized for automated discovery's higher read volume; it's not needed for this phase and can be revisited if/when discovery is added back.
 
 ## Known risks (documented, not eliminated by this design)
 
-1. **Strict substring content verification, not semantic understanding** — could reject a genuine pick phrased unusually (false negative, safe direction) or, if the routine's extraction is sloppy, could in principle produce a technically-matching but misleading excerpt (same class of risk the existing odds-grounding check already accepts for team-name matching).
+1. **Strict substring content verification, not semantic understanding** — could reject a genuine pick phrased unusually (false negative, safe direction) or, if the admin mistypes `pick_text`, could in principle produce a technically-matching but misleading excerpt (same class of risk the existing odds-grounding check already accepts for team-name matching).
 2. **Market-odds tier thresholds are a first approximation** and will likely need tuning once real distribution of picks/odds is observed.
-3. **Discovery volume** (10 tweets/account/check) could occasionally miss a pick older than the 10 most recent if a check is delayed or an account posts unusually prolifically in a short window — `since_id` pagination mitigates most of this; volume can be raised later within budget if needed.
-4. **Still blocked pending user-side setup**: X API pay-per-use billing + Bearer Token generation, and confirming the environment egress fix (in progress as of this writing) actually resolves cloud-routine network access.
+3. **Manual intake doesn't scale** — relies on a human noticing and entering each real pick; acceptable for a first launch, revisit once volume or reliability demands automation.
+4. **Still blocked pending user-side setup**: X API pay-per-use billing + Bearer Token generation (needed for the Worker's verification re-fetch regardless of manual vs. automated intake). The cloud-routine sandbox egress issue no longer blocks this phase at all — only the future automated-discovery phase.
 5. **`POSTING_PAUSED` stays enabled** until the user explicitly lifts it — this design does not implicitly resume live posting once implemented.
 
 ## Relationship to existing systems
