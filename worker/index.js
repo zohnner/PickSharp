@@ -630,6 +630,7 @@ async function generateForSlot(env, slot) {
       game_time: pick.game_time,
       game_time_utc: pick.game_time_utc,
       slot,
+      affiliate_link: env.AFFILIATE_LINK || null,
     });
     ids.push(id);
   }
