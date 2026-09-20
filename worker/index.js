@@ -378,7 +378,7 @@ async function handleCheckoutConfirm(request, env) {
 const QUIET_PERIOD_MINUTES = 15;
 
 async function handleDailyPostCheck(env) {
-  if (env.POSTING_PAUSED) {
+  if (env.POSTING_PAUSED === 'true') {
     console.log('Posting is paused (POSTING_PAUSED set) — skipping quiet-period check.');
     return;
   }
@@ -533,7 +533,7 @@ async function handleVerifySlot(request, env) {
 // Never throws: every failure path returns { posted: false, reason, status }, so a
 // caller in ctx.waitUntil (no HTTP response to send) can just log the outcome.
 async function postSlot(env, slot) {
-  if (env.POSTING_PAUSED) return { posted: false, reason: 'Posting is paused until further notice', status: 503 };
+  if (env.POSTING_PAUSED === 'true') return { posted: false, reason: 'Posting is paused until further notice', status: 503 };
 
   const alreadyPosted = await env.DB.prepare(
     `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
