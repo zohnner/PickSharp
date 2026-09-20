@@ -655,7 +655,7 @@ async function generateForSlot(env, slot) {
   return { inserted: ids.length, ids };
 }
 
-const GENERATION_SLOTS = ['morning', 'midday', 'evening'];
+const GENERATION_SLOTS = ['morning', 'midday', 'afternoon', 'evening'];
 
 async function handleGenerateSlot(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
