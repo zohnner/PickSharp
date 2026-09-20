@@ -4,14 +4,19 @@ import { addPick, deletePick, listAllPicks } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
+const TRACKED_AUTHORS = ['@CodyBrownBets', '@SharpFootball', '@jasonrmcintyre', '@DocsSports', '@nflpickspage'];
+const SLOTS = ['manual', 'morning', 'midday', 'evening'];
 
 const emptyForm = {
-  author: '',
+  author: TRACKED_AUTHORS[0],
   pick_text: '',
   game: '',
   game_time: '',
+  game_time_utc: '',
   pick_type: 'spread',
   confidence: 'medium',
+  source_tweet_url: '',
+  slot: 'manual',
 };
 
 export default function AdminPanel({ session, loadingSession }) {
@@ -49,7 +54,10 @@ export default function AdminPanel({ session, loadingSession }) {
     setSubmitting(true);
     setError(null);
     try {
-      await addPick(form);
+      const payload = { ...form };
+      if (!payload.source_tweet_url) delete payload.source_tweet_url;
+      if (!payload.game_time_utc) delete payload.game_time_utc;
+      await addPick(payload);
       setForm(emptyForm);
       await loadPicks();
     } catch (err) {
@@ -95,32 +103,48 @@ export default function AdminPanel({ session, loadingSession }) {
       <h1 className="text-2xl font-bold text-white">Admin: Add a Pick</h1>
 
       <form onSubmit={handleSubmit} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-5 sm:grid-cols-2">
-        <input
-          required
-          placeholder="Author (@handle)"
+        <select
           value={form.author}
           onChange={(e) => setForm({ ...form, author: e.target.value })}
+          className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
+        >
+          {TRACKED_AUTHORS.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="Source tweet URL (optional)"
+          value={form.source_tweet_url}
+          onChange={(e) => setForm({ ...form, source_tweet_url: e.target.value })}
           className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
         />
         <input
           required
-          placeholder="Pick text (e.g. Kansas City -5.5)"
+          placeholder="Pick text (e.g. Kansas City Chiefs -5.5)"
           value={form.pick_text}
           onChange={(e) => setForm({ ...form, pick_text: e.target.value })}
           className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
         />
         <input
           required
-          placeholder="Game (e.g. KC @ BAL)"
+          placeholder="Game (exact full team names, e.g. Baltimore Ravens @ Kansas City Chiefs)"
           value={form.game}
           onChange={(e) => setForm({ ...form, game: e.target.value })}
           className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
         />
         <input
           required
-          placeholder="Game time (e.g. Sept 15 1:00 PM)"
+          placeholder="Game time (e.g. Sept 21 1:00 PM)"
           value={form.game_time}
           onChange={(e) => setForm({ ...form, game_time: e.target.value })}
+          className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
+        />
+        <input
+          placeholder="Game time UTC (ISO 8601, e.g. 2026-09-21T18:00:00Z) — required for slots/source tweets"
+          value={form.game_time_utc}
+          onChange={(e) => setForm({ ...form, game_time_utc: e.target.value })}
           className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
         />
         <select
@@ -134,14 +158,27 @@ export default function AdminPanel({ session, loadingSession }) {
             </option>
           ))}
         </select>
+        {!form.source_tweet_url && (
+          <select
+            value={form.confidence}
+            onChange={(e) => setForm({ ...form, confidence: e.target.value })}
+            className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
+          >
+            {CONFIDENCE_LEVELS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
         <select
-          value={form.confidence}
-          onChange={(e) => setForm({ ...form, confidence: e.target.value })}
+          value={form.slot}
+          onChange={(e) => setForm({ ...form, slot: e.target.value })}
           className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
         >
-          {CONFIDENCE_LEVELS.map((c) => (
-            <option key={c} value={c}>
-              {c}
+          {SLOTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
             </option>
           ))}
         </select>
@@ -163,9 +200,22 @@ export default function AdminPanel({ session, loadingSession }) {
             <div>
               <p className="text-sm font-semibold text-white">
                 {pick.author} — {pick.pick_text}
+                {pick.source_tweet_id && (
+                  <span className={`ml-2 text-xs ${pick.verified ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {pick.verified ? '✓ Verified' : '⏳ Pending verification'}
+                  </span>
+                )}
               </p>
               <p className="text-xs text-neutral-500">
-                {pick.game} · {pick.game_time} · {pick.pick_type} · {pick.confidence}
+                {pick.game} · {pick.game_time} · {pick.pick_type} · {pick.confidence} · {pick.slot || 'manual'}
+                {pick.source_tweet_url && (
+                  <>
+                    {' · '}
+                    <a href={pick.source_tweet_url} target="_blank" rel="noreferrer" className="text-sharp-500 hover:underline">
+                      source tweet
+                    </a>
+                  </>
+                )}
               </p>
             </div>
             <button onClick={() => handleDelete(pick.id)} className="text-sm font-medium text-red-400 hover:underline">
