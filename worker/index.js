@@ -527,21 +527,22 @@ async function handleVerifySlot(request, env) {
   return json({ slot, results });
 }
 
-async function handlePostSlot(request, env) {
-  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
-  if (env.POSTING_PAUSED) return json({ error: 'Posting is paused until further notice' }, 503);
-  const { slot } = await request.json();
-  if (!slot) return json({ error: 'slot is required' }, 400);
+// Core posting logic, independent of HTTP -- callable both from the admin endpoint
+// (handlePostSlot, below) and directly from the scheduled handler for full automation.
+// Never throws: every failure path returns { posted: false, reason, status }, so a
+// caller in ctx.waitUntil (no HTTP response to send) can just log the outcome.
+async function postSlot(env, slot) {
+  if (env.POSTING_PAUSED) return { posted: false, reason: 'Posting is paused until further notice', status: 503 };
 
   const alreadyPosted = await env.DB.prepare(
     `SELECT 1 FROM daily_posts WHERE date = date('now', '-4 hours') AND slot = ?`
   )
     .bind(slot)
     .first();
-  if (alreadyPosted) return json({ error: 'Already posted for this slot today' }, 400);
+  if (alreadyPosted) return { posted: false, reason: 'Already posted for this slot today', status: 400 };
 
   let picks = (await getTodaysPicksRaw(env.DB, { includeUnverified: true })).filter((p) => p.slot === slot);
-  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+  if (picks.length === 0) return { posted: false, reason: 'No picks found for this slot today', status: 400 };
 
   picks = await verifyAndTierPicks(env, slot, picks);
 
@@ -549,10 +550,10 @@ async function handlePostSlot(request, env) {
   // actually marked verified above, regardless of which path left it unverified.
   picks = picks.filter((p) => !p.source_tweet_id || p.verified);
 
-  if (picks.length === 0) return json({ error: 'No picks found for this slot today' }, 400);
+  if (picks.length === 0) return { posted: false, reason: 'No picks found for this slot today', status: 400 };
 
   if (!env.PUBLIC_SITE_URL) {
-    return json({ error: 'PUBLIC_SITE_URL is not configured' }, 500);
+    return { posted: false, reason: 'PUBLIC_SITE_URL is not configured', status: 500 };
   }
 
   const freeId = freePickId(picks);
@@ -563,14 +564,27 @@ async function handlePostSlot(request, env) {
   try {
     tweetId = await postTweet(env, tweetText);
   } catch (err) {
-    return json({ error: err.message }, 502);
+    console.error(`[${slot}] postTweet failed:`, err.message);
+    return { posted: false, reason: err.message, status: 502 };
   }
 
   await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), ?, ?)`)
     .bind(slot, tweetId)
     .run();
 
-  return json({ tweet_id: tweetId, pick_count: picks.length });
+  return { posted: true, tweet_id: tweetId, pick_count: picks.length };
+}
+
+async function handlePostSlot(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const { slot } = await request.json();
+  if (!slot) return json({ error: 'slot is required' }, 400);
+
+  const result = await postSlot(env, slot);
+  if (result.posted) {
+    return json({ tweet_id: result.tweet_id, pick_count: result.pick_count });
+  }
+  return json({ error: result.reason }, result.status);
 }
 
 async function generateForSlot(env, slot) {
@@ -743,9 +757,29 @@ export default {
     const isGenerationDay = [0, 4, 6].includes(fired.getUTCDay()); // Sun, Thu, Sat
     const slot = isGenerationDay && fired.getUTCMinutes() === 0 ? SLOT_HOURS[fired.getUTCHours()] : undefined;
     if (slot) {
-      ctx.waitUntil(generateForSlot(env, slot));
+      ctx.waitUntil(generateAndPostSlot(env, slot));
     } else {
       ctx.waitUntil(handleDailyPostCheck(env));
     }
   },
 };
+
+// Chains generation into posting for full automation -- each half already carries its
+// own idempotency guard (already-generated / already-posted), so this stays safe under
+// Cloudflare's at-least-once cron redelivery: a retry just no-ops on whichever half
+// already succeeded. Both halves already avoid throwing internally; the try/catch here
+// is a last-resort guard so ctx.waitUntil never sees an unhandled rejection.
+async function generateAndPostSlot(env, slot) {
+  try {
+    const generated = await generateForSlot(env, slot);
+    console.log(`[${slot}] generation:`, JSON.stringify(generated));
+  } catch (err) {
+    console.error(`[${slot}] generateForSlot threw unexpectedly:`, err.message);
+  }
+  try {
+    const posted = await postSlot(env, slot);
+    console.log(`[${slot}] posting:`, JSON.stringify(posted));
+  } catch (err) {
+    console.error(`[${slot}] postSlot threw unexpectedly:`, err.message);
+  }
+}
