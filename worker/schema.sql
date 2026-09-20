@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS picks (
   affiliate_link TEXT NOT NULL DEFAULT 'https://ak.draftkings.com',
   slot TEXT,
   game_time_utc TEXT,
+  source_tweet_url TEXT,
+  source_tweet_id TEXT,
+  verified INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -58,6 +61,12 @@ CREATE TABLE IF NOT EXISTS daily_posts (
   PRIMARY KEY (date, slot)
 );
 
+CREATE TABLE IF NOT EXISTS ingested_tweets (
+  tweet_id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS buyer_sources (
   buyer_token TEXT PRIMARY KEY,
   source TEXT NOT NULL,
@@ -71,10 +80,3 @@ INSERT OR IGNORE INTO picker_stats (author, win_rate) VALUES
   ('@jasonrmcintyre', 55),
   ('@DocsSports', 55),
   ('@nflpickspage', 55);
-
-INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time) VALUES
-  ('@CodyBrownBets', 'Kansas City -5.5', 'spread', 'high', 'KC @ BAL', 'Sept 15 1:00 PM'),
-  ('@SharpFootball', 'Over 47', 'over_under', 'medium', 'KC @ BAL', 'Sept 15 1:00 PM'),
-  ('@jasonrmcintyre', 'Bills ML', 'moneyline', 'high', 'BUF @ MIA', 'Sept 15 4:25 PM'),
-  ('@DocsSports', 'Josh Allen 280+ passing', 'prop', 'medium', 'BUF @ MIA', 'Sept 15 4:25 PM'),
-  ('@nflpickspage', 'Under 41', 'over_under', 'low', 'DAL @ NYG', 'Sept 15 8:20 PM');

@@ -1,7 +1,7 @@
 export async function getPicks(db, { sinceDays } = {}) {
   let query = `
     SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
-           p.affiliate_link, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+           p.affiliate_link, p.slot, p.game_time_utc, p.source_tweet_url, p.source_tweet_id, p.verified, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
     FROM picks p
     LEFT JOIN picker_stats s ON s.author = p.author
   `;
@@ -17,27 +17,41 @@ export async function getPicks(db, { sinceDays } = {}) {
 }
 
 export async function insertPick(db, pick) {
-  const { author, pick_text, pick_type, confidence, game, game_time, affiliate_link, slot, game_time_utc } = pick;
-  const result = await db
+  const {
+    author, pick_text, pick_type, confidence, game, game_time,
+    affiliate_link, slot, game_time_utc, source_tweet_url, source_tweet_id,
+  } = pick;
+
+  const insertStmt = db
     .prepare(
-      `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, affiliate_link, slot, game_time_utc)
-       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'https://ak.draftkings.com'), ?, ?)`
+      `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, affiliate_link, slot, game_time_utc, source_tweet_url, source_tweet_id)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'https://ak.draftkings.com'), ?, ?, ?, ?)`
     )
-    .bind(author, pick_text, pick_type, confidence, game, game_time, affiliate_link || null, slot || 'manual', game_time_utc || null)
-    .run();
+    .bind(
+      author, pick_text, pick_type, confidence, game, game_time,
+      affiliate_link || null, slot || 'manual', game_time_utc || null,
+      source_tweet_url || null, source_tweet_id || null
+    );
+
+  if (source_tweet_id) {
+    const ingestStmt = db
+      .prepare(`INSERT INTO ingested_tweets (tweet_id, author) VALUES (?, ?)`)
+      .bind(source_tweet_id, author);
+    const [insertResult] = await db.batch([insertStmt, ingestStmt]);
+    return insertResult.meta.last_row_id;
+  }
+
+  const result = await insertStmt.run();
   return result.meta.last_row_id;
 }
 
-export async function insertGeneratedPicks(db, picks, slot) {
-  const stmts = picks.map((pick) =>
-    db
-      .prepare(
-        `INSERT INTO picks (author, pick_text, pick_type, confidence, game, game_time, slot)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(pick.author, pick.pick_text, pick.pick_type, pick.confidence, pick.game, pick.game_time, slot)
-  );
-  await db.batch(stmts);
+export async function isTweetIngested(db, tweetId) {
+  const row = await db.prepare('SELECT 1 FROM ingested_tweets WHERE tweet_id = ?').bind(tweetId).first();
+  return Boolean(row);
+}
+
+export async function markPickVerified(db, id, confidence) {
+  await db.prepare('UPDATE picks SET verified = 1, confidence = ? WHERE id = ?').bind(confidence, id).run();
 }
 
 export async function deletePickById(db, id) {
@@ -60,14 +74,17 @@ export async function getUserById(db, id) {
 
 const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 };
 
-export async function getTodaysPicksRaw(db) {
+export async function getTodaysPicksRaw(db, { includeUnverified = false } = {}) {
+  const gate = includeUnverified ? '' : 'AND (p.verified = 1 OR p.source_tweet_id IS NULL)';
   const { results } = await db
     .prepare(
       `SELECT p.id, p.author, p.pick_text, p.pick_type, p.confidence, p.game, p.game_time,
-              p.affiliate_link, p.slot, p.game_time_utc, p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
+              p.affiliate_link, p.slot, p.game_time_utc, p.source_tweet_url, p.source_tweet_id, p.verified,
+              p.created_at, COALESCE(s.win_rate, 55.0) AS win_rate
        FROM picks p
        LEFT JOIN picker_stats s ON s.author = p.author
        WHERE date(p.created_at, '-4 hours') = date('now', '-4 hours')
+       ${gate}
        ORDER BY p.created_at ASC`
     )
     .all();
