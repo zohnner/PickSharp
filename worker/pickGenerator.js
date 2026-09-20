@@ -40,14 +40,22 @@ function summarizeGame(g) {
 }
 
 function buildPrompt(oddsGames) {
-  const gamesSummary = oddsGames.slice(0, 15).map(summarizeGame).join('\n');
+  const now = new Date().toISOString();
+  const upcoming = oddsGames.filter((g) => new Date(g.commence_time).getTime() > Date.now());
+  const gamesForPrompt = (upcoming.length > 0 ? upcoming : oddsGames)
+    .slice()
+    .sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time))
+    .slice(0, 15);
+  const gamesSummary = gamesForPrompt.map(summarizeGame).join('\n');
 
   return `You are generating sports betting picks for PickSharp, a sports-picks website. These are PickSharp's own picks -- do not attribute them to any real person.
 
-Real upcoming games and odds:
+The current time is ${now} (UTC). Only pick games that have NOT started yet as of this time -- every game listed below has a kickoff after this time, sorted soonest first. Strongly prefer the soonest upcoming games over ones further in the future, since these picks need to be useful to someone reading them right now.
+
+Upcoming games and real odds (soonest first):
 ${gamesSummary}
 
-Generate 3 to 5 picks grounded in this real data. Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
+Generate 3 to 5 picks grounded in this real data, prioritizing the games kicking off soonest. Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
 - pick_type: one of "spread", "moneyline", "prop", "over_under"
 - game: the exact "<away_team> @ <home_team>" string from the data above, verbatim, unabbreviated
 - game_time: a human-readable kickoff time, e.g. "Sept 21 1:00 PM ET"
