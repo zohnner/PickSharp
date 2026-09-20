@@ -609,9 +609,17 @@ async function generateForSlot(env, slot) {
     console.error(`[${slot}] All generated picks failed grounding, nothing inserted.`);
     return { inserted: 0 };
   }
+  if (grounded.length < candidates.length) {
+    console.warn(`[${slot}] ${candidates.length - grounded.length} generated pick(s) dropped for failing grounding.`);
+  }
+
+  // The prompt asks for 3-5 picks, but nothing else caps it -- guard against a model
+  // returning more than intended, since every grounded pick becomes a real, sellable item.
+  const MAX_PICKS_PER_SLOT = 5;
+  const toInsert = grounded.slice(0, MAX_PICKS_PER_SLOT);
 
   const ids = [];
-  for (const pick of grounded) {
+  for (const pick of toInsert) {
     const confidence = computeConfidenceFromOdds(pick, oddsGames);
     const id = await insertPick(env.DB, {
       author: 'PickSharp',
@@ -630,10 +638,15 @@ async function generateForSlot(env, slot) {
   return { inserted: ids.length, ids };
 }
 
+const GENERATION_SLOTS = ['morning', 'midday', 'evening'];
+
 async function handleGenerateSlot(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const { slot } = await request.json();
   if (!slot) return json({ error: 'slot is required' }, 400);
+  if (!GENERATION_SLOTS.includes(slot)) {
+    return json({ error: `slot must be one of: ${GENERATION_SLOTS.join(', ')}` }, 400);
+  }
   const result = await generateForSlot(env, slot);
   return json(result);
 }
