@@ -19,6 +19,7 @@ import { postTweet } from './x.js';
 import { getUpcomingOdds } from './oddsApi.js';
 import { fetchTweet, TweetNotFoundError } from './xVerify.js';
 import { computeConfidenceFromOdds } from './tiering.js';
+import { generatePicks } from './pickGenerator.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -572,6 +573,71 @@ async function handlePostSlot(request, env) {
   return json({ tweet_id: tweetId, pick_count: picks.length });
 }
 
+async function generateForSlot(env, slot) {
+  const alreadyGenerated = await env.DB.prepare(
+    `SELECT 1 FROM picks WHERE author = 'PickSharp' AND slot = ? AND date(created_at, '-4 hours') = date('now', '-4 hours')`
+  )
+    .bind(slot)
+    .first();
+  if (alreadyGenerated) {
+    console.log(`[${slot}] PickSharp picks already generated today, skipping.`);
+    return { skipped: true, reason: 'already generated' };
+  }
+
+  let oddsGames;
+  try {
+    oddsGames = await getUpcomingOdds(env);
+  } catch (err) {
+    console.error(`[${slot}] Odds fetch failed, cannot generate:`, err.message);
+    return { skipped: true, reason: 'odds fetch failed' };
+  }
+  if (oddsGames.length === 0) {
+    console.log(`[${slot}] No upcoming games, skipping generation.`);
+    return { skipped: true, reason: 'no games' };
+  }
+
+  let candidates;
+  try {
+    candidates = await generatePicks(env, oddsGames);
+  } catch (err) {
+    console.error(`[${slot}] Pick generation failed:`, err.message);
+    return { skipped: true, reason: 'generation failed' };
+  }
+
+  const grounded = candidates.filter((p) => matchesRealGame(p, oddsGames));
+  if (grounded.length === 0) {
+    console.error(`[${slot}] All generated picks failed grounding, nothing inserted.`);
+    return { inserted: 0 };
+  }
+
+  const ids = [];
+  for (const pick of grounded) {
+    const confidence = computeConfidenceFromOdds(pick, oddsGames);
+    const id = await insertPick(env.DB, {
+      author: 'PickSharp',
+      pick_text: pick.pick_text,
+      pick_type: pick.pick_type,
+      confidence,
+      game: pick.game,
+      game_time: pick.game_time,
+      game_time_utc: pick.game_time_utc,
+      slot,
+    });
+    ids.push(id);
+  }
+
+  console.log(`[${slot}] Generated and inserted ${ids.length} PickSharp picks.`);
+  return { inserted: ids.length, ids };
+}
+
+async function handleGenerateSlot(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const { slot } = await request.json();
+  if (!slot) return json({ error: 'slot is required' }, 400);
+  const result = await generateForSlot(env, slot);
+  return json(result);
+}
+
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
   if (!buyer_token || !source) {
@@ -629,6 +695,9 @@ export default {
       if (pathname === '/api/admin/verify-slot' && request.method === 'POST') {
         return await handleVerifySlot(request, env);
       }
+      if (pathname === '/api/admin/generate-slot' && request.method === 'POST') {
+        return await handleGenerateSlot(request, env);
+      }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
       }
@@ -651,6 +720,16 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleDailyPostCheck(env));
+    const GENERATION_CRONS = {
+      '0 13 * * 4,6,0': 'morning',
+      '0 17 * * 4,6,0': 'midday',
+      '0 22 * * 4,6,0': 'evening',
+    };
+    const slot = GENERATION_CRONS[event.cron];
+    if (slot) {
+      ctx.waitUntil(generateForSlot(env, slot));
+    } else {
+      ctx.waitUntil(handleDailyPostCheck(env));
+    }
   },
 };
