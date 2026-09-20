@@ -70,13 +70,17 @@ export default function Picks() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
-      <h1 className="text-2xl font-bold text-white">Today's Picks</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        PickSharp's own AI-assisted analysis, grounded in real market odds — plus verified picks from real
-        accounts on X, with a link back to the source.
+      <h1 className="text-2xl font-bold text-white sm:text-3xl">Today's NFL Picks</h1>
+      <p className="mt-2 text-sm text-neutral-400">
+        PickSharp's own analysis, grounded in real market odds — plus verified picks from real accounts on X.
       </p>
-      <p className="mt-1 text-xs text-neutral-600">
-        Unlocks are tied to this browser — they won't follow you to another device.
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-neutral-500">
+        <span>🔓 One free pick every day</span>
+        <span>💵 Unlock more from $1.99</span>
+        <span>📊 Every pick checked against live odds</span>
+      </div>
+      <p className="mt-3 text-xs text-neutral-600">
+        No account needed to unlock a pick — just tied to this browser.
       </p>
 
       {lockedPicks.length >= 2 && (
