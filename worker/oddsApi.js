@@ -1,9 +1,13 @@
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf', 'basketball_nba'];
 
+// player_anytime_td is intentionally excluded: The Odds API returns those as yes/no
+// outcomes with no numeric `point`, incompatible with this design's point-based line
+// grounding -- it was being fetched and paid for but could never produce a pick.
+// Could be added back later with dedicated handling for that outcome shape.
 const PROP_MARKETS = {
-  americanfootball_nfl: 'player_pass_yds,player_rush_yds,player_receptions,player_anytime_td',
-  americanfootball_ncaaf: 'player_pass_yds,player_rush_yds,player_receptions,player_anytime_td',
+  americanfootball_nfl: 'player_pass_yds,player_rush_yds,player_receptions',
+  americanfootball_ncaaf: 'player_pass_yds,player_rush_yds,player_receptions',
   basketball_nba: 'player_points,player_rebounds,player_assists,player_threes',
 };
 

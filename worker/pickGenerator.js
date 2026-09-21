@@ -1,6 +1,19 @@
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 
+// player_anytime_td is deliberately not included: The Odds API returns those as
+// yes/no outcomes with no numeric `point`, incompatible with this map's point-based
+// line labeling (see PROP_MARKETS in oddsApi.js, which no longer requests it).
+const MARKET_LABELS = {
+  player_pass_yds: 'Passing Yards',
+  player_rush_yds: 'Rushing Yards',
+  player_receptions: 'Receptions',
+  player_points: 'Points',
+  player_rebounds: 'Rebounds',
+  player_assists: 'Assists',
+  player_threes: 'Threes',
+};
+
 function extractJson(text) {
   const start = text.indexOf('[');
   const end = text.lastIndexOf(']');
@@ -52,10 +65,19 @@ function isValidPropPick(pick) {
       typeof pick.player === 'string' &&
       pick.player.trim().length > 0 &&
       typeof pick.market === 'string' &&
-      pick.market.trim().length > 0 &&
-      typeof pick.pick_text === 'string' &&
-      pick.pick_text.trim().length > 0
+      MARKET_LABELS[pick.market] &&
+      typeof pick.line === 'number' &&
+      !Number.isNaN(pick.line)
   );
+}
+
+// Composed server-side from grounded, verified fields rather than trusting the model's
+// own pick_text prose -- same "derive it, don't trust free text" pattern as
+// formatGameTime above. This is what stops a real line borrowed from the wrong market
+// (e.g. a rushing-yards line mislabeled "Receiving Yards") from ever reaching the
+// tweeted/sold pick text.
+function composePropPickText(pick) {
+  return `${pick.player} Over ${pick.line} ${MARKET_LABELS[pick.market]}`;
 }
 
 // Only the "Over" side of each market is summarized -- an Over/Under pair at the
@@ -90,9 +112,9 @@ Generate 3 to 5 player prop picks grounded in this real data. Respond with ONLY 
 - game_time_utc: the exact kickoff value from the data above for that game, verbatim
 - player: the exact player name from the data above, verbatim
 - market: the exact market key (e.g. "player_pass_yds") from the data above, verbatim
-- pick_text: a short pick description grounded in the real prop lines shown above, e.g. "Patrick Mahomes Over 275.5 Passing Yards"
+- line: the exact numeric Over line from the data above for that player+market, as a number (e.g. 275.5)
 
-Do not invent a player, game, or line that isn't in the data above.`;
+Do not invent a player, game, market, or line that isn't in the data above.`;
 }
 
 export async function generatePropPicks(env, gamesWithProps) {
@@ -113,7 +135,9 @@ export async function generatePropPicks(env, gamesWithProps) {
   if (!Array.isArray(candidates)) {
     throw new Error('Model response was not a JSON array');
   }
-  return candidates.filter(isValidPropPick).map((pick) => ({ ...pick, game_time: formatGameTime(pick.game_time_utc) }));
+  return candidates
+    .filter(isValidPropPick)
+    .map((pick) => ({ ...pick, game_time: formatGameTime(pick.game_time_utc), pick_text: composePropPickText(pick) }));
 }
 
 function summarizeGame(g) {

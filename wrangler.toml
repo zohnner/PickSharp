@@ -37,4 +37,10 @@ POSTING_PAUSED = "false"
 AFFILIATE_LINK = "https://ak.draftkings.com"
 
 [triggers]
+# Second string's "0,15" fires props generation at :15 past 13/17/22 UTC alongside the
+# existing :00 generation firings -- 13:15 and 17:15 are deliberate harmless no-ops
+# (only 22:15 matches the props branch in index.js's scheduled(); the other two fall
+# through to the same quiet-period check that already runs every 5 minutes). Consolidated
+# into one string instead of a separate 3rd cron because Cloudflare's Workers Free plan
+# caps cron triggers at 5 PER ACCOUNT (not per Worker) -- see feedback memory on this.
 crons = ["1,6,11,16,21,26,31,36,41,46,51,56 * * * *", "0,15 13,17,22 * * THU,SAT,SUN"]

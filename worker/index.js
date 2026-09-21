@@ -77,26 +77,19 @@ function matchesRealGame(pick, oddsGames) {
   });
 }
 
-function extractLineNumber(text) {
-  const match = (text || '').match(/\d+(\.\d+)?/);
-  return match ? match[0] : null;
-}
-
 function matchesRealProp(pick, gamesWithProps) {
+  if (!pick.game_time_utc) return false;
   const entry = gamesWithProps.find(({ game }) => matchesRealGame(pick, [game]));
   if (!entry) return false;
 
   const player = (pick.player || '').toLowerCase();
-  if (!player || !(pick.pick_text || '').toLowerCase().includes(player)) return false;
+  if (!player) return false;
 
-  const pickLine = extractLineNumber(pick.pick_text);
   const bookmaker = entry.propsData.bookmakers?.[0];
   return (bookmaker?.markets || []).some(
     (m) =>
       m.key === pick.market &&
-      (m.outcomes || []).some(
-        (o) => (o.description || '').toLowerCase() === player && (!pickLine || String(o.point) === pickLine)
-      )
+      (m.outcomes || []).some((o) => (o.description || '').toLowerCase() === player && o.point === pick.line)
   );
 }
 
@@ -686,6 +679,15 @@ async function generateForSlot(env, slot) {
   return { inserted: ids.length, ids };
 }
 
+// A fulfilled per-event props fetch can still return HTTP 200 with `bookmakers: []`
+// (or markets with no outcomes) when the sportsbook hasn't posted props for that game
+// yet -- truthy but useless. This distinguishes that case from a genuinely usable
+// response so an empty data block doesn't dilute the prompt and waste one of the
+// limited game "slots" props generation gets.
+function hasUsableProps(propsData) {
+  return Boolean(propsData?.bookmakers?.[0]?.markets?.some((m) => (m.outcomes || []).length > 0));
+}
+
 async function generateForPropsSlot(env) {
   const alreadyGenerated = await env.DB.prepare(
     `SELECT 1 FROM picks WHERE author = 'PickSharp' AND slot = 'props' AND date(created_at, '-4 hours') = date('now', '-4 hours')`
@@ -715,8 +717,10 @@ async function generateForPropsSlot(env) {
   const propResults = await Promise.allSettled(upcoming.map((game) => getEventProps(env, game.sport_key, game.id)));
   const gamesWithProps = [];
   propResults.forEach((result, i) => {
-    if (result.status === 'fulfilled' && result.value) {
+    if (result.status === 'fulfilled' && hasUsableProps(result.value)) {
       gamesWithProps.push({ game: upcoming[i], propsData: result.value });
+    } else if (result.status === 'fulfilled') {
+      console.log(`[props] No usable prop markets yet for ${upcoming[i].away_team} @ ${upcoming[i].home_team}, skipping.`);
     } else if (result.status === 'rejected') {
       console.error(
         `[props] Event-props fetch failed for ${upcoming[i].away_team} @ ${upcoming[i].home_team}:`,
@@ -967,6 +971,9 @@ export default {
     if (isGenerationDay && minute === 0 && SLOT_HOURS[hour]) {
       ctx.waitUntil(generateAndPostSlot(env, SLOT_HOURS[hour]));
     } else if (isGenerationDay && hour === 22 && minute === 15) {
+      // Only this specific firing is meaningful -- 13:15/17:15 also match this cron
+      // (consolidated to stay under Cloudflare's account-wide 5-trigger cap) but fall
+      // through to the branch below, which is already a safe no-op there.
       ctx.waitUntil(generateAndPostPropsSlot(env));
     } else {
       ctx.waitUntil(handleDailyPostCheck(env));
