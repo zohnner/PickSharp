@@ -91,10 +91,12 @@ function matchesRealProp(pick, gamesWithProps) {
 
   const pickLine = extractLineNumber(pick.pick_text);
   const bookmaker = entry.propsData.bookmakers?.[0];
-  return (bookmaker?.markets || []).some((m) =>
-    (m.outcomes || []).some(
-      (o) => (o.description || '').toLowerCase() === player && (!pickLine || String(o.point) === pickLine)
-    )
+  return (bookmaker?.markets || []).some(
+    (m) =>
+      m.key === pick.market &&
+      (m.outcomes || []).some(
+        (o) => (o.description || '').toLowerCase() === player && (!pickLine || String(o.point) === pickLine)
+      )
   );
 }
 
@@ -792,7 +794,7 @@ async function handleGenerateSlot(request, env) {
   if (!GENERATION_SLOTS.includes(slot)) {
     return json({ error: `slot must be one of: ${GENERATION_SLOTS.join(', ')}` }, 400);
   }
-  const result = await generateForSlot(env, slot);
+  const result = slot === 'props' ? await generateForPropsSlot(env) : await generateForSlot(env, slot);
   return json(result);
 }
 

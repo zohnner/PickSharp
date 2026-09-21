@@ -51,6 +51,8 @@ function isValidPropPick(pick) {
       !Number.isNaN(new Date(pick.game_time_utc).getTime()) &&
       typeof pick.player === 'string' &&
       pick.player.trim().length > 0 &&
+      typeof pick.market === 'string' &&
+      pick.market.trim().length > 0 &&
       typeof pick.pick_text === 'string' &&
       pick.pick_text.trim().length > 0
   );
@@ -87,6 +89,7 @@ Generate 3 to 5 player prop picks grounded in this real data. Respond with ONLY 
 - game: the exact "<away_team> @ <home_team>" string from the data above, verbatim, unabbreviated
 - game_time_utc: the exact kickoff value from the data above for that game, verbatim
 - player: the exact player name from the data above, verbatim
+- market: the exact market key (e.g. "player_pass_yds") from the data above, verbatim
 - pick_text: a short pick description grounded in the real prop lines shown above, e.g. "Patrick Mahomes Over 275.5 Passing Yards"
 
 Do not invent a player, game, or line that isn't in the data above.`;
