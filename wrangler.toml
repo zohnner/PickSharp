@@ -37,4 +37,4 @@ POSTING_PAUSED = "false"
 AFFILIATE_LINK = "https://ak.draftkings.com"
 
 [triggers]
-crons = ["1,6,11,16,21,26,31,36,41,46,51,56 * * * *", "0 13,17,22 * * THU,SAT,SUN", "15 22 * * THU,SAT,SUN"]
+crons = ["1,6,11,16,21,26,31,36,41,46,51,56 * * * *", "0,15 13,17,22 * * THU,SAT,SUN"]
