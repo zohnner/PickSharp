@@ -17,13 +17,28 @@ function isValidPick(pick) {
       PICK_TYPES.includes(pick.pick_type) &&
       typeof pick.game === 'string' &&
       pick.game.trim().length > 0 &&
-      typeof pick.game_time === 'string' &&
-      pick.game_time.trim().length > 0 &&
       typeof pick.game_time_utc === 'string' &&
       !Number.isNaN(new Date(pick.game_time_utc).getTime()) &&
       typeof pick.pick_text === 'string' &&
       pick.pick_text.trim().length > 0
   );
+}
+
+// Derived from game_time_utc (the verbatim, grounded timestamp) instead of asking the
+// model to also write its own human-readable time -- that let it echo a correct
+// game_time_utc while inventing a mismatched display string (e.g. a real 4:25 PM ET
+// kickoff shown as "8:25 PM ET"), since nothing tied the two together.
+function formatGameTime(isoString) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date(isoString));
+  const get = (type) => parts.find((p) => p.type === type)?.value || '';
+  return `${get('month')} ${get('day')} ${get('hour')}:${get('minute')} ${get('dayPeriod')} ET`;
 }
 
 function summarizeGame(g) {
@@ -58,7 +73,6 @@ ${gamesSummary}
 Generate 3 to 5 picks grounded in this real data, prioritizing the games kicking off soonest. Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
 - pick_type: one of "spread", "moneyline", "prop", "over_under"
 - game: the exact "<away_team> @ <home_team>" string from the data above, verbatim, unabbreviated
-- game_time: a human-readable kickoff time, e.g. "Sept 21 1:00 PM ET"
 - game_time_utc: the exact commence_time value from the data above for that game, verbatim
 - pick_text: a short pick description grounded in the real odds shown above, e.g. "Kansas City Chiefs -5.5"
 
@@ -83,5 +97,5 @@ export async function generatePicks(env, oddsGames) {
   if (!Array.isArray(candidates)) {
     throw new Error('Model response was not a JSON array');
   }
-  return candidates.filter(isValidPick);
+  return candidates.filter(isValidPick).map((pick) => ({ ...pick, game_time: formatGameTime(pick.game_time_utc) }));
 }
