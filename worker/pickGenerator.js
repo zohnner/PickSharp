@@ -41,6 +41,78 @@ function formatGameTime(isoString) {
   return `${get('month')} ${get('day')} ${get('hour')}:${get('minute')} ${get('dayPeriod')} ET`;
 }
 
+function isValidPropPick(pick) {
+  return Boolean(
+    pick &&
+      pick.pick_type === 'prop' &&
+      typeof pick.game === 'string' &&
+      pick.game.trim().length > 0 &&
+      typeof pick.game_time_utc === 'string' &&
+      !Number.isNaN(new Date(pick.game_time_utc).getTime()) &&
+      typeof pick.player === 'string' &&
+      pick.player.trim().length > 0 &&
+      typeof pick.pick_text === 'string' &&
+      pick.pick_text.trim().length > 0
+  );
+}
+
+// Only the "Over" side of each market is summarized -- an Over/Under pair at the
+// same line carries the same information for picking a side, and halving the pairs
+// keeps the prompt shorter across up to 3 games worth of prop markets.
+function summarizePropGame(game, propsData) {
+  const bookmaker = propsData.bookmakers?.[0];
+  const lines = (bookmaker?.markets || [])
+    .flatMap((m) =>
+      (m.outcomes || [])
+        .filter((o) => o.name === 'Over')
+        .map((o) => `${o.description} ${m.key}: Over ${o.point} (${o.price})`)
+    )
+    .join('\n');
+  return `${game.away_team} @ ${game.home_team}, kickoff ${game.commence_time}:\n${lines}`;
+}
+
+function buildPropsPrompt(gamesWithProps) {
+  const now = new Date().toISOString();
+  const gamesSummary = gamesWithProps.map(({ game, propsData }) => summarizePropGame(game, propsData)).join('\n\n');
+
+  return `You are generating player prop bet picks for PickSharp, a sports-picks website. These are PickSharp's own picks -- do not attribute them to any real person.
+
+The current time is ${now} (UTC). Only pick from the games and players listed below.
+
+Upcoming games and real player prop lines:
+${gamesSummary}
+
+Generate 3 to 5 player prop picks grounded in this real data. Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
+- pick_type: always "prop"
+- game: the exact "<away_team> @ <home_team>" string from the data above, verbatim, unabbreviated
+- game_time_utc: the exact kickoff value from the data above for that game, verbatim
+- player: the exact player name from the data above, verbatim
+- pick_text: a short pick description grounded in the real prop lines shown above, e.g. "Patrick Mahomes Over 275.5 Passing Yards"
+
+Do not invent a player, game, or line that isn't in the data above.`;
+}
+
+export async function generatePropPicks(env, gamesWithProps) {
+  const prompt = buildPropsPrompt(gamesWithProps);
+  const response = await env.AI.run(MODEL, {
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0,
+    max_tokens: 1024,
+  });
+
+  const text = response.response || '';
+  let candidates;
+  try {
+    candidates = extractJson(text);
+  } catch (err) {
+    throw new Error(`Could not parse model response as JSON: ${err.message}`);
+  }
+  if (!Array.isArray(candidates)) {
+    throw new Error('Model response was not a JSON array');
+  }
+  return candidates.filter(isValidPropPick).map((pick) => ({ ...pick, game_time: formatGameTime(pick.game_time_utc) }));
+}
+
 function summarizeGame(g) {
   const bookmaker = g.bookmakers?.[0];
   const markets = (bookmaker?.markets || [])
