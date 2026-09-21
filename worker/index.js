@@ -18,10 +18,10 @@ import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
-import { getUpcomingOdds } from './oddsApi.js';
+import { getUpcomingOdds, getEventProps } from './oddsApi.js';
 import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
 import { computeConfidenceFromOdds } from './tiering.js';
-import { generatePicks } from './pickGenerator.js';
+import { generatePicks, generatePropPicks } from './pickGenerator.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -75,6 +75,27 @@ function matchesRealGame(pick, oddsGames) {
     const away = (g.away_team || '').toLowerCase();
     return Boolean(home) && Boolean(away) && gameText.includes(home) && gameText.includes(away);
   });
+}
+
+function extractLineNumber(text) {
+  const match = (text || '').match(/\d+(\.\d+)?/);
+  return match ? match[0] : null;
+}
+
+function matchesRealProp(pick, gamesWithProps) {
+  const entry = gamesWithProps.find(({ game }) => matchesRealGame(pick, [game]));
+  if (!entry) return false;
+
+  const player = (pick.player || '').toLowerCase();
+  if (!player || !(pick.pick_text || '').toLowerCase().includes(player)) return false;
+
+  const pickLine = extractLineNumber(pick.pick_text);
+  const bookmaker = entry.propsData.bookmakers?.[0];
+  return (bookmaker?.markets || []).some((m) =>
+    (m.outcomes || []).some(
+      (o) => (o.description || '').toLowerCase() === player && (!pickLine || String(o.point) === pickLine)
+    )
+  );
 }
 
 function verifiesAuthor(pick, tweetUsername) {
@@ -663,7 +684,106 @@ async function generateForSlot(env, slot) {
   return { inserted: ids.length, ids };
 }
 
-const GENERATION_SLOTS = ['morning', 'midday', 'afternoon', 'evening'];
+async function generateForPropsSlot(env) {
+  const alreadyGenerated = await env.DB.prepare(
+    `SELECT 1 FROM picks WHERE author = 'PickSharp' AND slot = 'props' AND date(created_at, '-4 hours') = date('now', '-4 hours')`
+  ).first();
+  if (alreadyGenerated) {
+    console.log('[props] PickSharp picks already generated today, skipping.');
+    return { skipped: true, reason: 'already generated' };
+  }
+
+  let oddsGames;
+  try {
+    oddsGames = await getUpcomingOdds(env);
+  } catch (err) {
+    console.error('[props] Odds fetch failed, cannot generate:', err.message);
+    return { skipped: true, reason: 'odds fetch failed' };
+  }
+
+  const upcoming = oddsGames
+    .filter((g) => new Date(g.commence_time).getTime() > Date.now())
+    .sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time))
+    .slice(0, 3);
+  if (upcoming.length === 0) {
+    console.log('[props] No upcoming games, skipping generation.');
+    return { skipped: true, reason: 'no games' };
+  }
+
+  const propResults = await Promise.allSettled(upcoming.map((game) => getEventProps(env, game.sport_key, game.id)));
+  const gamesWithProps = [];
+  propResults.forEach((result, i) => {
+    if (result.status === 'fulfilled' && result.value) {
+      gamesWithProps.push({ game: upcoming[i], propsData: result.value });
+    } else if (result.status === 'rejected') {
+      console.error(
+        `[props] Event-props fetch failed for ${upcoming[i].away_team} @ ${upcoming[i].home_team}:`,
+        result.reason?.message
+      );
+    }
+  });
+  if (gamesWithProps.length === 0) {
+    console.log('[props] No usable prop data for any selected game, skipping generation.');
+    return { skipped: true, reason: 'no prop data' };
+  }
+
+  let candidates;
+  try {
+    candidates = await generatePropPicks(env, gamesWithProps);
+  } catch (err) {
+    console.error('[props] Pick generation failed:', err.message);
+    return { skipped: true, reason: 'generation failed' };
+  }
+
+  const grounded = candidates.filter((p) => matchesRealProp(p, gamesWithProps));
+  if (grounded.length === 0) {
+    console.error('[props] All generated picks failed grounding, nothing inserted.');
+    return { inserted: 0 };
+  }
+  if (grounded.length < candidates.length) {
+    console.warn(`[props] ${candidates.length - grounded.length} generated pick(s) dropped for failing grounding.`);
+  }
+
+  const MAX_PICKS_PER_SLOT = 5;
+  const toInsert = grounded.slice(0, MAX_PICKS_PER_SLOT);
+
+  const ids = [];
+  for (const pick of toInsert) {
+    const confidence = computeConfidenceFromOdds(pick, oddsGames);
+    const id = await insertPick(env.DB, {
+      author: 'PickSharp',
+      pick_text: pick.pick_text,
+      pick_type: pick.pick_type,
+      confidence,
+      game: pick.game,
+      game_time: pick.game_time,
+      game_time_utc: pick.game_time_utc,
+      slot: 'props',
+      affiliate_link: env.AFFILIATE_LINK || null,
+    });
+    ids.push(id);
+  }
+
+  console.log(`[props] Generated and inserted ${ids.length} PickSharp prop picks.`);
+  return { inserted: ids.length, ids };
+}
+
+async function generateAndPostPropsSlot(env) {
+  try {
+    const generated = await generateForPropsSlot(env);
+    console.log('[props] generation:', JSON.stringify(generated));
+  } catch (err) {
+    console.error('[props] generateForPropsSlot threw unexpectedly:', err.message);
+  }
+  try {
+    const posted = await postSlot(env, 'props');
+    console.log('[props] posting:', JSON.stringify(posted));
+  } catch (err) {
+    console.error('[props] postSlot threw unexpectedly:', err.message);
+  }
+}
+
+const GENERATION_SLOTS = ['morning', 'midday', 'afternoon', 'evening', 'props'];
 
 async function handleGenerateSlot(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
@@ -699,7 +819,7 @@ async function handleAdminFunnel(request, env) {
   return json(summary);
 }
 
-const PIPELINE_SLOTS = ['morning', 'midday', 'afternoon', 'evening'];
+const PIPELINE_SLOTS = ['morning', 'midday', 'afternoon', 'evening', 'props'];
 
 // Derived entirely from existing data (picks + daily_posts) -- no new schema. Answers
 // "did each scheduled run actually work today" without digging through raw Cloudflare logs.
@@ -840,9 +960,12 @@ export default {
     const SLOT_HOURS = { 13: 'morning', 17: 'midday', 22: 'evening' };
     const fired = new Date(event.scheduledTime);
     const isGenerationDay = [0, 4, 6].includes(fired.getUTCDay()); // Sun, Thu, Sat
-    const slot = isGenerationDay && fired.getUTCMinutes() === 0 ? SLOT_HOURS[fired.getUTCHours()] : undefined;
-    if (slot) {
-      ctx.waitUntil(generateAndPostSlot(env, slot));
+    const hour = fired.getUTCHours();
+    const minute = fired.getUTCMinutes();
+    if (isGenerationDay && minute === 0 && SLOT_HOURS[hour]) {
+      ctx.waitUntil(generateAndPostSlot(env, SLOT_HOURS[hour]));
+    } else if (isGenerationDay && hour === 22 && minute === 15) {
+      ctx.waitUntil(generateAndPostPropsSlot(env));
     } else {
       ctx.waitUntil(handleDailyPostCheck(env));
     }
