@@ -1,6 +1,12 @@
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf', 'basketball_nba'];
 
+const PROP_MARKETS = {
+  americanfootball_nfl: 'player_pass_yds,player_rush_yds,player_receptions,player_anytime_td',
+  americanfootball_ncaaf: 'player_pass_yds,player_rush_yds,player_receptions,player_anytime_td',
+  basketball_nba: 'player_points,player_rebounds,player_assists,player_threes',
+};
+
 async function fetchSportOdds(env, sportKey) {
   const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=spreads,totals,h2h&oddsFormat=american`;
   const res = await fetch(url);
@@ -25,4 +31,17 @@ export async function getUpcomingOdds(env) {
     throw new Error('Odds fetch failed for every sport');
   }
   return games;
+}
+
+export async function getEventProps(env, sportKey, eventId) {
+  const markets = PROP_MARKETS[sportKey];
+  if (!markets) return null;
+
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/events/${eventId}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=${markets}&oddsFormat=american`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`The Odds API event-props request failed for ${sportKey}/${eventId}: ${res.status} ${body}`);
+  }
+  return res.json();
 }
