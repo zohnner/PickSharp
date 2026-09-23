@@ -19,6 +19,24 @@ const emptyForm = {
   slot: 'manual',
 };
 
+// Derived from game_time_utc rather than trusting a model-provided display
+// string -- same "derive it, don't trust free text" reasoning as
+// worker/pickGenerator.js's own formatGameTime (a real kickoff time could
+// otherwise be echoed correctly in game_time_utc while a separate,
+// independently-generated display string drifted from it).
+function formatGameTime(isoString) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date(isoString));
+  const get = (type) => parts.find((p) => p.type === type)?.value || '';
+  return `${get('month')} ${get('day')} ${get('hour')}:${get('minute')} ${get('dayPeriod')} ET`;
+}
+
 export default function AdminPanel({ session, loadingSession }) {
   const [form, setForm] = useState(emptyForm);
   const [picks, setPicks] = useState([]);
@@ -111,6 +129,11 @@ export default function AdminPanel({ session, loadingSession }) {
       ...emptyForm,
       author: candidate.handle,
       source_tweet_url: candidate.post_url,
+      pick_type: candidate.pick_type || emptyForm.pick_type,
+      game: candidate.game || '',
+      game_time_utc: candidate.game_time_utc || '',
+      game_time: candidate.game_time_utc ? formatGameTime(candidate.game_time_utc) : '',
+      pick_text: candidate.pick_text || '',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -312,6 +335,14 @@ export default function AdminPanel({ session, loadingSession }) {
             {candidates.map((c) => (
               <div key={c.id} className="rounded-md border border-neutral-800 p-3">
                 <p className="text-xs text-neutral-500">{c.handle} · {c.posted_at || 'time unknown'}</p>
+                {c.pick_text && (
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {c.pick_text}
+                    <span className="ml-2 text-xs font-normal text-neutral-500">
+                      {c.game} · {c.pick_type}
+                    </span>
+                  </p>
+                )}
                 <p className="mt-1 text-sm text-neutral-200">{c.post_text}</p>
                 <div className="mt-2 flex gap-3">
                   <a href={c.post_url} target="_blank" rel="noreferrer" className="text-xs text-sharp-500 hover:underline">

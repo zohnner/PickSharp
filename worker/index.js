@@ -961,6 +961,19 @@ async function runDiscovery(env) {
     return { ran: false, reason: `Budget ceiling reached: $${spent.toFixed(2)} spent of $${ceiling.toFixed(2)}` };
   }
 
+  // Extraction needs real games to ground against (both to give the model a
+  // verbatim-reuse list, and to verify what it returns) -- without odds data
+  // there is nothing to validate an extracted game/time against, so this run
+  // is skipped entirely rather than proceeding ungrounded. Same fail-closed
+  // posture as generateForSlot's own odds-fetch failure handling.
+  let oddsGames;
+  try {
+    oddsGames = await getUpcomingOdds(env);
+  } catch (err) {
+    console.error('[discovery] Odds fetch failed, cannot ground extractions:', err.message);
+    return { ran: false, reason: 'odds fetch failed' };
+  }
+
   const handles = [];
   for (const author of TRACKED_AUTHORS) {
     const handle = author.replace(/^@/, '');
@@ -970,7 +983,7 @@ async function runDiscovery(env) {
     let result = null;
     let spendLogged = false;
     try {
-      result = await discoverCandidatesForHandle(env, handle);
+      result = await discoverCandidatesForHandle(env, handle, oddsGames);
 
       // Log spend FIRST, before anything that could fail: a post-200 parse error
       // still cost real money, and that record is the budget's source of truth.
@@ -988,7 +1001,22 @@ async function runDiscovery(env) {
         const tweetId = parseTweetId(post.url);
         if (!tweetId) continue;
         if (await isTweetIngested(env.DB, tweetId)) continue;
-        candidates.push({ handle: author, tweet_id: tweetId, post_text: post.text, post_url: post.url, posted_at: post.posted_at });
+        // Same grounding check the AI-generation pipeline already uses in
+        // production -- an extracted game/time that doesn't match a real
+        // upcoming game is discarded, not surfaced, regardless of how
+        // confident the model's own self-filtering claimed to be.
+        if (!matchesRealGame({ game: post.game, game_time_utc: post.game_time_utc }, oddsGames)) continue;
+        candidates.push({
+          handle: author,
+          tweet_id: tweetId,
+          post_text: post.text,
+          post_url: post.url,
+          posted_at: post.posted_at,
+          pick_type: post.pick_type,
+          game: post.game,
+          game_time_utc: post.game_time_utc,
+          pick_text: post.pick_text,
+        });
       }
       await insertDiscoveredCandidates(env.DB, candidates);
 
