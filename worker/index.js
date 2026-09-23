@@ -874,10 +874,31 @@ async function handleAdminPipelineStatus(request, env) {
   return json({ status });
 }
 
+// The xAI credit budget is fixed and non-refundable, and TICK_TO_USD is only a
+// calibrated estimate -- so the running total needs to be visible somewhere a
+// human actually looks, not just in a manual D1 query.
+function budgetCeilingUsd(env) {
+  return Number(env.XAI_DISCOVERY_BUDGET_CEILING_USD ?? '18');
+}
+
 async function handleGetDiscoveredCandidates(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const candidates = await getDiscoveredCandidates(env.DB);
-  return json({ candidates });
+
+  const ceiling = budgetCeilingUsd(env);
+  let spent = null;
+  try {
+    spent = await getXaiSpendTotalUsd(env.DB);
+  } catch (err) {
+    // Non-critical: the candidate list is still useful without the spend line.
+    console.error('[discovery] Could not read spend total:', err.message);
+  }
+
+  return json({
+    candidates,
+    spent_usd: spent,
+    ceiling_usd: Number.isFinite(ceiling) ? ceiling : null,
+  });
 }
 
 async function handleDismissCandidate(request, env, id) {
@@ -917,8 +938,25 @@ async function runDiscovery(env) {
     return { ran: false, reason: 'XAI_DISCOVERY_PAUSED is set' };
   }
 
-  const ceiling = Number(env.XAI_DISCOVERY_BUDGET_CEILING_USD ?? '18');
-  const spent = await getXaiSpendTotalUsd(env.DB);
+  // A typo'd env var would make Number() return NaN, and `spent >= NaN` is always
+  // false -- i.e. a run with no budget cap at all. Fail closed instead.
+  const ceiling = budgetCeilingUsd(env);
+  if (!Number.isFinite(ceiling) || ceiling <= 0) {
+    console.error(
+      `[discovery] Invalid XAI_DISCOVERY_BUDGET_CEILING_USD: ${JSON.stringify(env.XAI_DISCOVERY_BUDGET_CEILING_USD)}`
+    );
+    return { ran: false, reason: 'invalid budget ceiling' };
+  }
+
+  // If we cannot read what has been spent, we cannot know we are under the
+  // ceiling -- treat that as "do not spend", not as "$0 spent so far".
+  let spent;
+  try {
+    spent = await getXaiSpendTotalUsd(env.DB);
+  } catch (err) {
+    console.error('[discovery] Could not read spend total:', err.message);
+    return { ran: false, reason: 'could not read spend total' };
+  }
   if (spent >= ceiling) {
     return { ran: false, reason: `Budget ceiling reached: $${spent.toFixed(2)} spent of $${ceiling.toFixed(2)}` };
   }
@@ -926,27 +964,50 @@ async function runDiscovery(env) {
   const handles = [];
   for (const author of TRACKED_AUTHORS) {
     const handle = author.replace(/^@/, '');
-    let result;
+    // Everything for one handle -- the API call and all its D1 writes -- is
+    // isolated here, so one handle's failure never aborts the remaining handles
+    // and never escapes as an unhandled rejection under ctx.waitUntil.
+    let result = null;
+    let spendLogged = false;
     try {
       result = await discoverCandidatesForHandle(env, handle);
+
+      // Log spend FIRST, before anything that could fail: a post-200 parse error
+      // still cost real money, and that record is the budget's source of truth.
+      await logXaiSpend(env.DB, { handle, costUsdTicks: result.costUsdTicks, estimatedUsd: result.estimatedUsd });
+      spendLogged = true;
+
+      if (result.error) {
+        console.error(`[discovery] Failed for ${handle}:`, result.error);
+        handles.push({ handle, found: 0, estimated_usd: result.estimatedUsd, error: result.error });
+        continue;
+      }
+
+      const candidates = [];
+      for (const post of result.posts) {
+        const tweetId = parseTweetId(post.url);
+        if (!tweetId) continue;
+        if (await isTweetIngested(env.DB, tweetId)) continue;
+        candidates.push({ handle: author, tweet_id: tweetId, post_text: post.text, post_url: post.url, posted_at: post.posted_at });
+      }
+      await insertDiscoveredCandidates(env.DB, candidates);
+
+      handles.push({ handle, found: candidates.length, estimated_usd: result.estimatedUsd });
     } catch (err) {
       console.error(`[discovery] Failed for ${handle}:`, err.message);
-      handles.push({ handle, found: 0, estimated_usd: 0, error: err.message });
-      continue;
+      if (result && !spendLogged) {
+        console.error(
+          `[discovery] UNLOGGED SPEND: ~$${result.estimatedUsd.toFixed(4)} billed for ${handle} but not written to xai_spend_log`
+        );
+      }
+      handles.push({
+        handle,
+        found: 0,
+        estimated_usd: result?.estimatedUsd ?? 0,
+        error: err.message,
+        spend_logged: spendLogged,
+      });
     }
-
-    await logXaiSpend(env.DB, { handle, costUsdTicks: result.costUsdTicks, estimatedUsd: result.estimatedUsd });
-
-    const candidates = [];
-    for (const post of result.posts) {
-      const tweetId = parseTweetId(post.url);
-      if (!tweetId) continue;
-      if (await isTweetIngested(env.DB, tweetId)) continue;
-      candidates.push({ handle: author, tweet_id: tweetId, post_text: post.text, post_url: post.url, posted_at: post.posted_at });
-    }
-    await insertDiscoveredCandidates(env.DB, candidates);
-
-    handles.push({ handle, found: candidates.length, estimated_usd: result.estimatedUsd });
   }
 
   return { ran: true, handles };

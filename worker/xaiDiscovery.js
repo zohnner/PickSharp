@@ -16,9 +16,17 @@ After you get results, respond with ONLY compact JSON, no markdown, no prose, no
 Include only posts that look like a sports betting pick (a team/game plus a spread, moneyline, total, or player prop). Max ${RESULT_LIMIT} posts. If none found, return {"posts":[]}.`;
 }
 
+// Resolves (never rejects) for anything that happens AFTER xAI returns 2xx --
+// at that point the call has been billed, so the caller must still get the cost
+// back to log it. Those failures come back as { posts: [], error }. Genuinely
+// unbilled failures (non-2xx, network errors) still throw: there is no spend to log.
 export async function discoverCandidatesForHandle(env, handle) {
   const today = new Date();
   const windowStart = new Date(today.getTime() - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  // One day past today: xAI does not document whether to_date is inclusive, and an
+  // exclusive range would make the 12:30 UTC cron systematically miss posts made
+  // that same morning -- exactly the window discovery exists to catch.
+  const windowEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
   const fmt = (d) => d.toISOString().slice(0, 10);
 
   const res = await fetch(`${XAI_API_BASE}/responses`, {
@@ -35,7 +43,7 @@ export async function discoverCandidatesForHandle(env, handle) {
           type: 'x_search',
           allowed_x_handles: [handle],
           from_date: fmt(windowStart),
-          to_date: fmt(today),
+          to_date: fmt(windowEnd),
         },
       ],
     }),
@@ -46,27 +54,47 @@ export async function discoverCandidatesForHandle(env, handle) {
     throw new Error(`xAI API request failed for ${handle}: ${res.status} ${text}`);
   }
 
-  const data = JSON.parse(text);
+  // Past this point xAI has billed us. Every failure below reports the cost back
+  // instead of throwing, so the caller can log the spend before handling the error.
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    // No parseable body means no usage block either -- log the attempt at 0 so the
+    // error is at least visible; the true cost is unknowable from here.
+    return failure(0, `xAI API response body for ${handle} was not valid JSON: ${err.message}`);
+  }
+
+  const costUsdTicks = data.usage?.cost_in_usd_ticks ?? 0;
+
   const message = data.output?.find((o) => o.type === 'message');
   const rawText = message?.content?.[0]?.text;
   if (!rawText) {
-    throw new Error(`xAI API response for ${handle} had no message content`);
+    return failure(costUsdTicks, `xAI API response for ${handle} had no message content`);
   }
 
   let parsed;
   try {
     parsed = JSON.parse(rawText);
   } catch (err) {
-    throw new Error(`xAI API response for ${handle} was not valid JSON: ${err.message}`);
+    return failure(costUsdTicks, `xAI API response for ${handle} was not valid JSON: ${err.message}`);
   }
   if (!Array.isArray(parsed.posts)) {
-    throw new Error(`xAI API response for ${handle} had no "posts" array`);
+    return failure(costUsdTicks, `xAI API response for ${handle} had no "posts" array`);
   }
 
-  const costUsdTicks = data.usage?.cost_in_usd_ticks ?? 0;
   return {
     posts: parsed.posts,
     costUsdTicks,
     estimatedUsd: costUsdTicks * TICK_TO_USD,
+  };
+}
+
+function failure(costUsdTicks, error) {
+  return {
+    posts: [],
+    costUsdTicks,
+    estimatedUsd: costUsdTicks * TICK_TO_USD,
+    error,
   };
 }

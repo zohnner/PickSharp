@@ -33,6 +33,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [funnel, setFunnel] = useState(null);
   const [pipeline, setPipeline] = useState(null);
   const [candidates, setCandidates] = useState([]);
+  const [spend, setSpend] = useState(null);
 
   const loadPicks = async () => {
     try {
@@ -65,7 +66,12 @@ export default function AdminPanel({ session, loadingSession }) {
           // Non-critical: the rest of the admin panel still works without it.
         });
       getDiscoveredCandidates()
-        .then((data) => setCandidates(data.candidates || []))
+        .then((data) => {
+          setCandidates(data.candidates || []);
+          if (typeof data.spent_usd === 'number' && typeof data.ceiling_usd === 'number') {
+            setSpend({ spent: data.spent_usd, ceiling: data.ceiling_usd });
+          }
+        })
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
@@ -293,9 +299,15 @@ export default function AdminPanel({ session, loadingSession }) {
         )}
       </div>
 
-      {candidates.length > 0 && (
+      {(candidates.length > 0 || spend) && (
         <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           <span className="text-sm font-semibold text-white">Discovered tweet candidates</span>
+          {spend && (
+            <p className="mt-1 text-xs text-neutral-500">
+              xAI discovery budget: ${spend.spent.toFixed(2)} / ${spend.ceiling.toFixed(2)} spent (estimated)
+            </p>
+          )}
+          {candidates.length === 0 && <p className="mt-3 text-sm text-neutral-500">No pending candidates.</p>}
           <div className="mt-3 space-y-2">
             {candidates.map((c) => (
               <div key={c.id} className="rounded-md border border-neutral-800 p-3">
