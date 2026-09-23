@@ -193,10 +193,21 @@ export async function insertDiscoveredCandidates(db, candidates) {
   const stmts = candidates.map((c) =>
     db
       .prepare(
-        `INSERT OR IGNORE INTO discovered_tweet_candidates (handle, tweet_id, post_text, post_url, posted_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO discovered_tweet_candidates
+           (handle, tweet_id, post_text, post_url, posted_at, pick_type, game, game_time_utc, pick_text)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(c.handle, c.tweet_id, c.post_text, c.post_url, c.posted_at || null)
+      .bind(
+        c.handle,
+        c.tweet_id,
+        c.post_text,
+        c.post_url,
+        c.posted_at || null,
+        c.pick_type,
+        c.game,
+        c.game_time_utc,
+        c.pick_text
+      )
   );
   await db.batch(stmts);
 }
@@ -204,7 +215,8 @@ export async function insertDiscoveredCandidates(db, candidates) {
 export async function getDiscoveredCandidates(db) {
   const { results } = await db
     .prepare(
-      `SELECT id, handle, tweet_id, post_text, post_url, posted_at, discovered_at
+      `SELECT id, handle, tweet_id, post_text, post_url, posted_at,
+              pick_type, game, game_time_utc, pick_text, discovered_at
        FROM discovered_tweet_candidates
        WHERE dismissed = 0 AND tweet_id NOT IN (SELECT tweet_id FROM ingested_tweets)
        ORDER BY discovered_at DESC`

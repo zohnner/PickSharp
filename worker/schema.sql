@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS discovered_tweet_candidates (
   post_text TEXT NOT NULL,
   post_url TEXT NOT NULL UNIQUE,
   posted_at TEXT,
+  pick_type TEXT,
+  game TEXT,
+  game_time_utc TEXT,
+  pick_text TEXT,
   discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
   dismissed INTEGER NOT NULL DEFAULT 0
 );
