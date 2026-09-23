@@ -13,6 +13,9 @@ import {
   markPickVerified,
   logEvent,
   getFunnelSummary,
+  logXaiSpend,
+  getXaiSpendTotalUsd,
+  insertDiscoveredCandidates,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
@@ -20,6 +23,7 @@ import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds, getEventProps } from './oddsApi.js';
 import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
+import { discoverCandidatesForHandle } from './xaiDiscovery.js';
 import { computeConfidenceFromOdds } from './tiering.js';
 import { generatePicks, generatePropPicks } from './pickGenerator.js';
 
@@ -883,6 +887,49 @@ async function handleTrackSource(request, env) {
     .bind(buyer_token, source)
     .run();
   return json({ ok: true });
+}
+
+// Never throws -- callable from both an admin-triggered endpoint (needs a response)
+// and ctx.waitUntil in the scheduled handler (no response to send). Every failure
+// path returns a summary object instead, same convention as postSlot/generateForSlot.
+async function runDiscovery(env) {
+  if (env.XAI_DISCOVERY_PAUSED === 'true') {
+    return { ran: false, reason: 'XAI_DISCOVERY_PAUSED is set' };
+  }
+
+  const ceiling = Number(env.XAI_DISCOVERY_BUDGET_CEILING_USD ?? '18');
+  const spent = await getXaiSpendTotalUsd(env.DB);
+  if (spent >= ceiling) {
+    return { ran: false, reason: `Budget ceiling reached: $${spent.toFixed(2)} spent of $${ceiling.toFixed(2)}` };
+  }
+
+  const handles = [];
+  for (const author of TRACKED_AUTHORS) {
+    const handle = author.replace(/^@/, '');
+    let result;
+    try {
+      result = await discoverCandidatesForHandle(env, handle);
+    } catch (err) {
+      console.error(`[discovery] Failed for ${handle}:`, err.message);
+      handles.push({ handle, found: 0, estimated_usd: 0, error: err.message });
+      continue;
+    }
+
+    await logXaiSpend(env.DB, { handle, costUsdTicks: result.costUsdTicks, estimatedUsd: result.estimatedUsd });
+
+    const candidates = [];
+    for (const post of result.posts) {
+      const tweetId = parseTweetId(post.url);
+      if (!tweetId) continue;
+      if (await isTweetIngested(env.DB, tweetId)) continue;
+      candidates.push({ handle: author, tweet_id: tweetId, post_text: post.text, post_url: post.url, posted_at: post.posted_at });
+    }
+    await insertDiscoveredCandidates(env.DB, candidates);
+
+    handles.push({ handle, found: candidates.length, estimated_usd: result.estimatedUsd });
+  }
+
+  return { ran: true, handles };
 }
 
 export default {
