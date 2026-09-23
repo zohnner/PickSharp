@@ -28,6 +28,7 @@ import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js'
 import { discoverCandidatesForHandle } from './xaiDiscovery.js';
 import { computeConfidenceFromOdds } from './tiering.js';
 import { generatePicks, generatePropPicks } from './pickGenerator.js';
+import { dropConflictingPicks } from './pickConflicts.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -71,16 +72,34 @@ function matchesRealGame(pick, oddsGames) {
   if (!pick.game_time_utc) return true;
   const pickTime = new Date(pick.game_time_utc).getTime();
   if (Number.isNaN(pickTime)) return true;
+  return Boolean(findRealGame(pick, oddsGames));
+}
+
+function findRealGame(pick, oddsGames) {
+  const pickTime = new Date(pick.game_time_utc).getTime();
   const toleranceMs = 3 * 60 * 60 * 1000;
   const gameText = (pick.game || '').toLowerCase();
 
-  return oddsGames.some((g) => {
+  return oddsGames.find((g) => {
     const commence = new Date(g.commence_time).getTime();
     if (Number.isNaN(commence) || Math.abs(commence - pickTime) > toleranceMs) return false;
     const home = (g.home_team || '').toLowerCase();
     const away = (g.away_team || '').toLowerCase();
     return Boolean(home) && Boolean(away) && gameText.includes(home) && gameText.includes(away);
   });
+}
+
+// Grounding tolerates model drift in the game label and kickoff (+/-3h, any wording that
+// names both teams); rewrite both to the odds feed's exact values so every stored pick on
+// one game shares an identical game/game_time_utc -- dropConflictingPicks keys on that.
+function canonicalizeGame(pick, oddsGames) {
+  const real = findRealGame(pick, oddsGames);
+  if (!real) return pick;
+  return {
+    ...pick,
+    game: `${real.away_team} @ ${real.home_team}`,
+    game_time_utc: new Date(real.commence_time).toISOString().replace('.000Z', 'Z'),
+  };
 }
 
 function matchesRealProp(pick, gamesWithProps) {
@@ -650,7 +669,9 @@ async function generateForSlot(env, slot) {
     return { skipped: true, reason: 'generation failed' };
   }
 
-  const grounded = candidates.filter((p) => matchesRealGame(p, oddsGames));
+  const grounded = candidates
+    .filter((p) => matchesRealGame(p, oddsGames))
+    .map((p) => canonicalizeGame(p, oddsGames));
   if (grounded.length === 0) {
     console.error(`[${slot}] All generated picks failed grounding, nothing inserted.`);
     return { inserted: 0 };
@@ -659,10 +680,30 @@ async function generateForSlot(env, slot) {
     console.warn(`[${slot}] ${candidates.length - grounded.length} generated pick(s) dropped for failing grounding.`);
   }
 
+  // Checked against every earlier PickSharp pick on a not-yet-finished game, not just
+  // today's -- a Thursday game can already carry a pick generated on Monday.
+  const { results: existingPicks } = await env.DB.prepare(
+    `SELECT game, game_time_utc, pick_type, pick_text FROM picks
+     WHERE author = 'PickSharp' AND pick_type != 'prop' AND game_time_utc >= ?`
+  )
+    .bind(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .all();
+  const { kept: consistent, dropped: contradicting } = dropConflictingPicks(grounded, existingPicks);
+  if (contradicting.length > 0) {
+    console.warn(
+      `[${slot}] ${contradicting.length} pick(s) dropped for duplicating or contradicting an existing pick on the same game:`,
+      contradicting.map((p) => `${p.game}: ${p.pick_text}`).join('; ')
+    );
+  }
+  if (consistent.length === 0) {
+    console.log(`[${slot}] Every grounded pick conflicted with an existing pick, nothing inserted.`);
+    return { inserted: 0 };
+  }
+
   // The prompt asks for 3-5 picks, but nothing else caps it -- guard against a model
   // returning more than intended, since every grounded pick becomes a real, sellable item.
   const MAX_PICKS_PER_SLOT = 5;
-  const toInsert = grounded.slice(0, MAX_PICKS_PER_SLOT);
+  const toInsert = consistent.slice(0, MAX_PICKS_PER_SLOT);
 
   const ids = [];
   for (const pick of toInsert) {
