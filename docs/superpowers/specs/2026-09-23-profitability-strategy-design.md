@@ -35,6 +35,16 @@ Stop *predicting* games. Sell *measurable pricing edges* instead:
 - **Launch gate:** subscriptions go on sale only after a public proof period of ~3–4 weeks or 100+ edges with average CLV of about +1% or better. If CLV is not positive, tune thresholds or rethink before spending on marketing.
 - **Current AI-picks pipeline:** keeps running as-is for X content. Only the same-game contradiction guard gets added. AI picks will not be graded; grading/CLV is built for edges. Retire AI generation and pay-per-pick when the edge product launches.
 
+## Spike result (2026-09-23): edges on game lines are rare
+
+One live snapshot (Wednesday; 103 upcoming NFL/NCAAF games, 74 with Pinnacle lines, ~1,600 comparisons against 9 US books):
+- Proportional margin removal flagged 51 edges ≥2%, 50 of them longshot moneylines. That's the known favorite-longshot artifact, not real edge.
+- Power and Shin methods: 3–4 edges ≥2%; only **2** that both agree on (a +310 NFL moneyline and a +550 NCAAF moneyline).
+- Spreads/totals: **zero** edges at 1% or more. US books post a different number from Pinnacle on 59% of spread/total outcomes, so a fuller engine would need alternate-line pricing.
+- The Odds API key is on the free 500-credit plan (322 credits left after the spike); the paid plan is required regardless of direction.
+
+Decision: before building subscriptions or marketing, build a **minimal edge logger** (Shin method, 15-minute scans, closing-line capture) and run it for 2–3 weekends to measure real edge volume and CLV. If volume is too thin, next options are props (more data spend) or leaning on media + affiliate.
+
 ## Sub-projects, in order
 
 1. **Edge engine:** Pinnacle + US books ingestion, fair-price calculation, +EV detection with thresholds, capturing the closing line, edge storage. Replaces AI generation as the content source.
