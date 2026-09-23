@@ -1,4 +1,13 @@
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
+// The Odds API bills per request (markets x regions); a drained quota makes every slot
+// silently skip with 'odds fetch failed', so surface the remaining balance in the logs.
+function logQuota(res, label) {
+  const remaining = res.headers.get('x-requests-remaining');
+  if (remaining !== null) {
+    console.log(`[odds-quota] ${label}: remaining=${remaining} used=${res.headers.get('x-requests-used')}`);
+  }
+}
+
 const SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf', 'basketball_nba'];
 
 // player_anytime_td is intentionally excluded: The Odds API returns those as yes/no
@@ -14,6 +23,7 @@ const PROP_MARKETS = {
 async function fetchSportOdds(env, sportKey) {
   const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=spreads,totals,h2h&oddsFormat=american`;
   const res = await fetch(url);
+  logQuota(res, sportKey);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`The Odds API request failed for ${sportKey}: ${res.status} ${body}`);
@@ -43,6 +53,7 @@ export async function getEventProps(env, sportKey, eventId) {
 
   const url = `${ODDS_API_BASE}/sports/${sportKey}/events/${eventId}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=${markets}&oddsFormat=american`;
   const res = await fetch(url);
+  logQuota(res, `${sportKey}/props`);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`The Odds API event-props request failed for ${sportKey}/${eventId}: ${res.status} ${body}`);
