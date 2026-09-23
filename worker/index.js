@@ -1052,6 +1052,8 @@ export default {
       // (consolidated to stay under Cloudflare's account-wide 5-trigger cap) but fall
       // through to the branch below, which is already a safe no-op there.
       ctx.waitUntil(generateAndPostPropsSlot(env));
+    } else if (isGenerationDay && hour === 12 && minute === 30) {
+      ctx.waitUntil(runDiscovery(env));
     } else {
       ctx.waitUntil(handleDailyPostCheck(env));
     }
