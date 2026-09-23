@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -32,6 +32,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifyError, setVerifyError] = useState(null);
   const [funnel, setFunnel] = useState(null);
   const [pipeline, setPipeline] = useState(null);
+  const [candidates, setCandidates] = useState([]);
 
   const loadPicks = async () => {
     try {
@@ -63,6 +64,11 @@ export default function AdminPanel({ session, loadingSession }) {
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
+      getDiscoveredCandidates()
+        .then((data) => setCandidates(data.candidates || []))
+        .catch(() => {
+          // Non-critical: the rest of the admin panel still works without it.
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -89,6 +95,24 @@ export default function AdminPanel({ session, loadingSession }) {
     try {
       await deletePick(id);
       await loadPicks();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleUseCandidate = (candidate) => {
+    setForm({
+      ...emptyForm,
+      author: candidate.handle,
+      source_tweet_url: candidate.post_url,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDismissCandidate = async (id) => {
+    try {
+      await dismissCandidate(id);
+      setCandidates((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       setError(err.message);
     }
@@ -268,6 +292,31 @@ export default function AdminPanel({ session, loadingSession }) {
           </ul>
         )}
       </div>
+
+      {candidates.length > 0 && (
+        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <span className="text-sm font-semibold text-white">Discovered tweet candidates</span>
+          <div className="mt-3 space-y-2">
+            {candidates.map((c) => (
+              <div key={c.id} className="rounded-md border border-neutral-800 p-3">
+                <p className="text-xs text-neutral-500">{c.handle} · {c.posted_at || 'time unknown'}</p>
+                <p className="mt-1 text-sm text-neutral-200">{c.post_text}</p>
+                <div className="mt-2 flex gap-3">
+                  <a href={c.post_url} target="_blank" rel="noreferrer" className="text-xs text-sharp-500 hover:underline">
+                    view tweet
+                  </a>
+                  <button onClick={() => handleUseCandidate(c)} className="text-xs font-medium text-sharp-500 hover:underline">
+                    Use this
+                  </button>
+                  <button onClick={() => handleDismissCandidate(c.id)} className="text-xs font-medium text-red-400 hover:underline">
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {pipeline && (
         <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">

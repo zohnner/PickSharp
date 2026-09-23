@@ -55,6 +55,19 @@ export async function getPipelineStatus() {
   return request('/admin/pipeline-status', { headers });
 }
 
+export async function getDiscoveredCandidates() {
+  const headers = await authHeaders();
+  return request('/admin/discovered-candidates', { headers });
+}
+
+export async function dismissCandidate(id) {
+  const headers = await authHeaders();
+  return request(`/admin/discovered-candidates/${id}/dismiss`, {
+    method: 'POST',
+    headers,
+  });
+}
+
 export async function verifySlot(slot) {
   const headers = await authHeaders();
   return request('/admin/verify-slot', {
