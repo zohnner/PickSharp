@@ -175,3 +175,44 @@ export async function insertUnlocks(db, { buyerToken, pickIds, stripeSessionId }
   );
   await db.batch(stmts);
 }
+
+export async function logXaiSpend(db, { handle, costUsdTicks, estimatedUsd }) {
+  await db
+    .prepare('INSERT INTO xai_spend_log (handle, cost_usd_ticks, estimated_usd) VALUES (?, ?, ?)')
+    .bind(handle, costUsdTicks, estimatedUsd)
+    .run();
+}
+
+export async function getXaiSpendTotalUsd(db) {
+  const row = await db.prepare('SELECT COALESCE(SUM(estimated_usd), 0) AS total FROM xai_spend_log').first();
+  return row.total;
+}
+
+export async function insertDiscoveredCandidates(db, candidates) {
+  if (candidates.length === 0) return;
+  const stmts = candidates.map((c) =>
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO discovered_tweet_candidates (handle, tweet_id, post_text, post_url, posted_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .bind(c.handle, c.tweet_id, c.post_text, c.post_url, c.posted_at || null)
+  );
+  await db.batch(stmts);
+}
+
+export async function getDiscoveredCandidates(db) {
+  const { results } = await db
+    .prepare(
+      `SELECT id, handle, tweet_id, post_text, post_url, posted_at, discovered_at
+       FROM discovered_tweet_candidates
+       WHERE dismissed = 0 AND tweet_id NOT IN (SELECT tweet_id FROM ingested_tweets)
+       ORDER BY discovered_at DESC`
+    )
+    .all();
+  return results;
+}
+
+export async function dismissCandidate(db, id) {
+  await db.prepare('UPDATE discovered_tweet_candidates SET dismissed = 1 WHERE id = ?').bind(id).run();
+}
