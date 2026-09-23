@@ -16,6 +16,8 @@ import {
   logXaiSpend,
   getXaiSpendTotalUsd,
   insertDiscoveredCandidates,
+  getDiscoveredCandidates,
+  dismissCandidate,
 } from './db.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
@@ -872,6 +874,24 @@ async function handleAdminPipelineStatus(request, env) {
   return json({ status });
 }
 
+async function handleGetDiscoveredCandidates(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const candidates = await getDiscoveredCandidates(env.DB);
+  return json({ candidates });
+}
+
+async function handleDismissCandidate(request, env, id) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  await dismissCandidate(env.DB, id);
+  return json({ success: true });
+}
+
+async function handleDiscoverNow(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const result = await runDiscovery(env);
+  return json(result);
+}
+
 async function handleTrackSource(request, env) {
   const { buyer_token, source } = await request.json();
   if (!buyer_token || !source) {
@@ -983,6 +1003,16 @@ export default {
       }
       if (pathname === '/api/admin/generate-slot' && request.method === 'POST') {
         return await handleGenerateSlot(request, env);
+      }
+      if (pathname === '/api/admin/discovered-candidates' && request.method === 'GET') {
+        return await handleGetDiscoveredCandidates(request, env);
+      }
+      const dismissMatch = pathname.match(/^\/api\/admin\/discovered-candidates\/(\d+)\/dismiss$/);
+      if (dismissMatch && request.method === 'POST') {
+        return await handleDismissCandidate(request, env, Number(dismissMatch[1]));
+      }
+      if (pathname === '/api/admin/discover' && request.method === 'POST') {
+        return await handleDiscoverNow(request, env);
       }
       if (pathname === '/api/admin/picks' && request.method === 'GET') {
         return await handleAdminListPicks(request, env);
