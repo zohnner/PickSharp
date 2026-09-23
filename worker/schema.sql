@@ -72,5 +72,24 @@ CREATE TABLE IF NOT EXISTS buyer_sources (
   first_seen TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS xai_spend_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  handle TEXT NOT NULL,
+  cost_usd_ticks INTEGER NOT NULL,
+  estimated_usd REAL NOT NULL,
+  called_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS discovered_tweet_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  handle TEXT NOT NULL,
+  tweet_id TEXT NOT NULL,
+  post_text TEXT NOT NULL,
+  post_url TEXT NOT NULL UNIQUE,
+  posted_at TEXT,
+  discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+  dismissed INTEGER NOT NULL DEFAULT 0
+);
+
 -- No seed data: picker_stats rows are only ever inserted once a real win/loss
 -- track record exists for an author -- never a fabricated default.
