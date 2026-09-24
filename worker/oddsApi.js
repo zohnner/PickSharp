@@ -1,3 +1,5 @@
+import { toFeedIso } from './edgeSchedule.js';
+
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 // The Odds API bills per request (markets x regions); a drained quota makes every slot
 // silently skip with 'odds fetch failed', so surface the remaining balance in the logs.
@@ -78,4 +80,36 @@ export async function getEventProps(env, sportKey, eventId) {
     throw new Error(`The Odds API event-props request failed for ${sportKey}/${eventId}: ${res.status} ${body}`);
   }
   return res.json();
+}
+
+export const EDGE_SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf'];
+
+// Up to 10 named bookmakers bill as one region (3 credits for 3 markets, verified live);
+// Pinnacle is the sharp reference, the rest are books a US bettor can actually use.
+const EDGE_BOOKMAKERS = 'pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,fanatics,betrivers,hardrockbet';
+const EDGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function fetchSharpComparison(env, sportKey, nowMs) {
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&bookmakers=${EDGE_BOOKMAKERS}&markets=h2h,spreads,totals&oddsFormat=decimal&commenceTimeTo=${toFeedIso(nowMs + EDGE_WINDOW_MS)}`;
+  const res = await fetch(url);
+  logQuota(res, `${sportKey}/edges`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`The Odds API edge request failed for ${sportKey}: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+// /v4/sports costs 0 credits but still returns the quota headers -- used as a free
+// balance check before every paid edge scan.
+export async function getRemainingCredits(env) {
+  try {
+    const res = await fetch(`${ODDS_API_BASE}/sports?apiKey=${env.ODDS_API_KEY}`);
+    const raw = res.headers.get('x-requests-remaining');
+    const remaining = raw === null ? NaN : Number(raw);
+    return Number.isFinite(remaining) ? remaining : null;
+  } catch (err) {
+    console.error('Odds API balance check failed:', err.message);
+    return null;
+  }
 }
