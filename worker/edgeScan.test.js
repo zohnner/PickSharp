@@ -114,6 +114,9 @@ test('discovery scan upserts found edges and records the scan', async () => {
   const upserts = db.log.filter((s) => s.sql.includes('INSERT INTO edges') && s.sql.includes('ON CONFLICT'));
   assert.equal(upserts.length, 1);
   assert.equal(upserts[0].args[7], 'fanduel');
+  // F5: a line that moves onto a different exact point re-upserts under a new identity, so
+  // a stale row's own commence_time (e.g. a postponed game) must still refresh on every hit.
+  assert.match(upserts[0].sql, /commence_time = excluded\.commence_time/);
   assert.equal(scanRows(db)[0].args[2], 1); // ran = 1
 });
 
@@ -134,6 +137,10 @@ test('closing scan runs only for sports with a logged kickoff in the window, and
   const closes = db.log.filter((s) => s.sql.includes('SET close_price'));
   assert.equal(closes.length, 1);
   assert.equal(closes[0].args[0], 5.2); // close_price
+  // F5: the close write also refreshes commence_time from the fresh comparison, not just
+  // close_price/close_fair_prob, so a postponed/moved kickoff doesn't go stale.
+  assert.match(closes[0].sql, /commence_time = \?/);
+  assert.equal(closes[0].args[2], evt.commence_time); // commence_time refreshed
   assert.equal(closes[0].args.at(-1), 7); // WHERE id = 7
 });
 

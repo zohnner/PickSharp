@@ -82,7 +82,8 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
            first_price, first_fair_prob, first_ev, peak_ev)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (event_id, market, outcome, COALESCE(point, -9999), book)
-         DO UPDATE SET peak_ev = MAX(peak_ev, excluded.first_ev), last_edge_seen_at = datetime('now')`
+         DO UPDATE SET peak_ev = MAX(peak_ev, excluded.first_ev), last_edge_seen_at = datetime('now'),
+           commence_time = excluded.commence_time`
       )
       .bind(e.event_id, e.sport, e.game, e.commence_time, e.market, e.outcome, e.point, e.book,
         e.price, e.fair_prob, e.ev, e.ev)
@@ -107,8 +108,11 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
     if (!c) continue;
     closes.push(
       db
-        .prepare(`UPDATE edges SET close_price = ?, close_fair_prob = ?, close_updated_at = datetime('now') WHERE id = ?`)
-        .bind(c.price, c.fair_prob, row.id)
+        .prepare(
+          `UPDATE edges SET close_price = ?, close_fair_prob = ?, close_updated_at = datetime('now'),
+             commence_time = ? WHERE id = ?`
+        )
+        .bind(c.price, c.fair_prob, c.commence_time, row.id)
     );
   }
   if (closes.length > MAX_WRITES_PER_KIND) {
