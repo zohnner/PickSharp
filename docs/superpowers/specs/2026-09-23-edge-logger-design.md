@@ -12,13 +12,18 @@ The launch gate it feeds: ~3–4 weeks or 100+ edges with average CLV of about +
 
 ## Scanning
 
-- **When:** the existing `1,6,11,...,56 * * * *` cron. In `scheduled()`, fires at minutes 1/16/31/46 between 12:00 and 05:59 UTC run the edge scan *in addition to* the existing `handleDailyPostCheck` (both via `ctx.waitUntil`). Dispatch is derived from `event.scheduledTime` like the other branches. No new cron trigger, because the account is at Cloudflare's 5-trigger cap.
-  - There's no overlap with the generation cron (`0,15,30 12,13,17,22 ...`), whose minutes 0/15/30 never match 1/16/31/46.
-- **What:** for each sport in `EDGE_SPORTS` (`americanfootball_nfl`, `americanfootball_ncaaf`): `GET /v4/sports/{sport}/odds?bookmakers=pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,fanatics,betrivers,hardrockbet&markets=h2h,spreads,totals&oddsFormat=decimal`.
-  - Up to 10 named bookmakers bill as 1 region, so each call costs 3 credits (confirmed live in the spike), 6 per scan.
-  - Monthly budget: 18 h/day × 4 scans/h × 6 = 432 credits/day, about 13K/month. Together with the current AI pipeline (~80 credits per game day), that fits the 20K plan.
-  - Per-sport failures are isolated with `Promise.allSettled`, like `getUpcomingOdds`. `logQuota` logs the remaining balance.
-- **Kill switch:** `EDGE_SCAN_PAUSED` in `wrangler.toml`, exact match `=== 'true'`. **It ships as `"true"`.** On the free 500-credit plan the scanner would drain the remaining credits in under a day and break the AI pipeline. The owner flips it to `"false"` after upgrading to the paid plan.
+**Constraint (revised 2026-09-23):** the owner is staying on The Odds API's **free 500-credit/month plan**. Even after the 2026-09-23 trim (10-minute odds cache plus a 3-day `commenceTimeTo` window), the AI pipeline needs roughly 33 credits per game day, about 430 a month. So the logger scans only at the moments that matter and sits behind a hard budget guard that protects the pipeline.
+
+- **Scan request:** for each sport in `EDGE_SPORTS` (`americanfootball_nfl`, `americanfootball_ncaaf`): `GET /v4/sports/{sport}/odds?bookmakers=pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,fanatics,betrivers,hardrockbet&markets=h2h,spreads,totals&oddsFormat=decimal&commenceTimeTo=<now+7d>`.
+  - Up to 10 named bookmakers bill as 1 region, so each call costs 3 credits (confirmed live), or 0 when the window holds no games (confirmed live).
+  - Per-sport failures are isolated with `Promise.allSettled`. `logQuota` logs the balance.
+- **When** (all driven by the existing `1,6,11,...,56 * * * *` cron, dispatched from `event.scheduledTime` and run *in addition to* `handleDailyPostCheck`; no new cron trigger, since the account is at Cloudflare's 5-trigger cap, and minutes 1/6/... never collide with the generation cron's 0/15/30):
+  1. **Discovery scan, once a day:** the 16:01 UTC tick (noon ET) scans every `EDGE_SPORTS` sport. The spike found its edges 3–4 days before kickoff, so daily discovery catches edges while they're still bettable. At most 6 credits a day.
+  2. **Closing scan, only for games we logged an edge on:** at each tick `T`, if `edges` holds a row whose `commence_time` falls in `[T+10min, T+15min)`, scan that row's sport. Ticks are 5 minutes apart and the window is 5 minutes wide, so each kickoff triggers exactly one closing scan, taken 10–15 minutes before kickoff. Edges are rare (~2 standing at a time in the spike), so this adds only a few scans a week.
+  - Every scan, discovery or closing, also refreshes the closing fields for all logged edges on events that haven't started (see Storage).
+- **Budget guard:** before any paid scan, call the free `GET /v4/sports?apiKey=...` endpoint and read `x-requests-remaining`. If `remaining − 3 × sportsToScan < EDGE_SCAN_RESERVE` (a `wrangler.toml` var, default `"150"`), skip the scan and log it. That credit floor stays reserved for the AI pipeline for the rest of the month. When the monthly reset refills the quota, scanning resumes on its own.
+- **Kill switch:** `EDGE_SCAN_PAUSED` in `wrangler.toml`, exact match `=== 'true'`. It ships as `"false"`, because the budget guard is what protects the quota.
+- **Expected cost:** at most ~180 credits/month for discovery plus a few closing scans a week, always capped by the reserve. With the pipeline at ~430/month, the logger will realistically get whatever room is left before the guard kicks in. See the open question on the props slot in the plan.
 
 ## Detection
 
@@ -91,7 +96,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS edges_identity
   - Matches only exact points.
   - Skips events that have started and markets that aren't 2-way.
   - `closingUpdates` covers the logged combinations.
-- **Production check after the owner upgrades the plan:** set `EDGE_SCAN_PAUSED="false"`, deploy, wait for one scheduled scan, confirm the `[odds-quota]` log lines and the rows in `edges`, and check `/api/admin/edges`.
+- `worker/edgeSchedule.test.js`: the discovery tick fires only at 16:01 UTC; the closing window `[T+10, T+15)` catches each logged kickoff exactly once across consecutive 5-minute ticks; the budget guard skips a scan when it would cross the reserve.
+- **Production check:** after deploying, wait for the next 16:01 UTC discovery tick. Confirm the `[odds-quota]` and budget-guard log lines, the rows in `edges`, and `/api/admin/edges`.
 
 ## Out of scope
 

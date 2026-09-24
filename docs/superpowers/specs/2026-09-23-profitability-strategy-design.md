@@ -30,7 +30,7 @@ Stop *predicting* games. Sell *measurable pricing edges* instead:
 
 ## Scope decisions
 
-- **Sports/data:** NFL, NCAAF, NBA game lines (spreads, totals, moneylines); US books plus Pinnacle (Odds API `us` + `eu` regions); scans every 15 minutes during game windows; The Odds API paid plan, ~$30/mo. Props and more sports only after the edge is proven.
+- **Sports/data:** NFL, NCAAF, NBA game lines (spreads, totals, moneylines); US books plus Pinnacle (Odds API `us` + `eu` regions); **staying on The Odds API free 500-credit plan (owner decision 2026-09-23)**: a daily discovery scan plus closing scans only for games with logged edges, behind a credit reserve that protects the AI pipeline. See the edge logger spec. Props and more sports only after the edge is proven.
   - Known consequence: until the NBA starts (~2026-10-20), Mon–Wed will usually have no edges, so launch messaging should focus on weekend edges.
 - **Launch gate:** subscriptions go on sale only after a public proof period of ~3–4 weeks or 100+ edges with average CLV of about +1% or better. If CLV is not positive, tune thresholds or rethink before spending on marketing.
 - **Current AI-picks pipeline:** keeps running as-is for X content. Only the same-game contradiction guard gets added. AI picks will not be graded; grading/CLV is built for edges. Retire AI generation and pay-per-pick when the edge product launches.
@@ -41,9 +41,9 @@ One live snapshot (Wednesday; 103 upcoming NFL/NCAAF games, 74 with Pinnacle lin
 - Proportional margin removal flagged 51 edges ≥2%, 50 of them longshot moneylines. That's the known favorite-longshot artifact, not real edge.
 - Power and Shin methods: 3–4 edges ≥2%; only **2** that both agree on (a +310 NFL moneyline and a +550 NCAAF moneyline).
 - Spreads/totals: **zero** edges at 1% or more. US books post a different number from Pinnacle on 59% of spread/total outcomes, so a fuller engine would need alternate-line pricing.
-- The Odds API key is on the free 500-credit plan (322 credits left after the spike); the paid plan is required regardless of direction.
+- The Odds API key is on the free 500-credit plan (322 credits left after the spike). The owner chose to stay on it, so the pipeline was trimmed (odds cache + 3-day window, ~80 → ~33 credits per game day) and the logger was redesigned around kickoff-timed scans.
 
-Decision: before building subscriptions or marketing, build a **minimal edge logger** (Shin method, 15-minute scans, closing-line capture) and run it for 2–3 weekends to measure real edge volume and CLV. If volume is too thin, next options are props (more data spend) or leaning on media + affiliate.
+Decision: before building subscriptions or marketing, build a **minimal edge logger** (Shin method, daily discovery + closing scans, free-tier budget, closing-line capture) and run it for 2–3 weekends to measure real edge volume and CLV. If volume is too thin, next options are props (more data spend) or leaning on media + affiliate.
 
 ## Sub-projects, in order
 
