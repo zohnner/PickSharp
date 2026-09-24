@@ -183,6 +183,48 @@ test('F3: open-edge query orders by soonest kickoff, and the cap keeps the soone
   assert.deepEqual(closes.map((c) => c.args.at(-1)), Array.from({ length: 15 }, (_, i) => i + 1));
 });
 
+test('F6: a D1 failure during the write phase still records the scan before rethrowing', async () => {
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  const realBatch = db.batch.bind(db);
+  let batchCalls = 0;
+  db.batch = async (stmts) => {
+    batchCalls += 1;
+    if (batchCalls === 1) throw new Error('D1 write failed');
+    return realBatch(stmts);
+  };
+
+  await assert.rejects(
+    () => runEdgeScan({ DB: db }, DISCOVERY, deps(400)),
+    /D1 write failed/
+  );
+
+  const rows = scanRows(db);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].args[2], 0); // ran = 0
+  assert.equal(rows[0].args[3], 'db error');
+});
+
+test('F6: a failure recording the "db error" scan itself does not swallow the original error', async () => {
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  db.batch = async () => { throw new Error('D1 write failed'); };
+  db.prepare = (sql) => {
+    if (sql.includes('INSERT INTO edge_scans')) {
+      return { bind() { return this; }, async run() { throw new Error('record-scan also failed'); } };
+    }
+    return {
+      sql, args: [],
+      bind(...args) { this.args = args; return this; },
+      async all() { return { results: [] }; },
+      async run() { return {}; },
+    };
+  };
+
+  await assert.rejects(
+    () => runEdgeScan({ DB: db }, DISCOVERY, deps(400)),
+    /D1 write failed/ // the original error, not the recordScan failure
+  );
+});
+
 test('all sport fetches failing records a skipped scan and writes no edges', async () => {
   const db = fakeDb();
   const r = await runEdgeScan({ DB: db }, DISCOVERY, {

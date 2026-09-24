@@ -75,50 +75,63 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
   if (found.length > MAX_WRITES_PER_KIND) {
     console.warn(`[edges] ${found.length} edges found, logging the top ${MAX_WRITES_PER_KIND}`);
   }
-  const upserts = found.slice(0, MAX_WRITES_PER_KIND).map((e) =>
-    db
-      .prepare(
-        `INSERT INTO edges (event_id, sport, game, commence_time, market, outcome, point, book,
-           first_price, first_fair_prob, first_ev, peak_ev)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (event_id, market, outcome, COALESCE(point, -9999), book)
-         DO UPDATE SET peak_ev = MAX(peak_ev, excluded.first_ev), last_edge_seen_at = datetime('now'),
-           commence_time = excluded.commence_time`
-      )
-      .bind(e.event_id, e.sport, e.game, e.commence_time, e.market, e.outcome, e.point, e.book,
-        e.price, e.fair_prob, e.ev, e.ev)
-  );
-  if (upserts.length > 0) await db.batch(upserts);
 
-  // 2. Refresh the closing line of every logged edge whose game hasn't started. The last
-  //    write before kickoff stands as the close.
-  // Ordered soonest-first so that if there are more open edges than MAX_WRITES_PER_KIND,
-  // the write cap below keeps the ones about to kick off rather than an arbitrary slice.
-  const { results: openEdges } = await db
-    .prepare(
-      `SELECT id, event_id, market, outcome, point, book FROM edges WHERE commence_time > ?
-       ORDER BY commence_time ASC`
-    )
-    .bind(toFeedIso(scheduledMs))
-    .all();
-  const latest = new Map(closingUpdates(events, scheduledMs).map((c) => [edgeKey(c), c]));
-  const closes = [];
-  for (const row of openEdges) {
-    const c = latest.get(edgeKey(row));
-    if (!c) continue;
-    closes.push(
+  let closes = [];
+  try {
+    const upserts = found.slice(0, MAX_WRITES_PER_KIND).map((e) =>
       db
         .prepare(
-          `UPDATE edges SET close_price = ?, close_fair_prob = ?, close_updated_at = datetime('now'),
-             commence_time = ? WHERE id = ?`
+          `INSERT INTO edges (event_id, sport, game, commence_time, market, outcome, point, book,
+             first_price, first_fair_prob, first_ev, peak_ev)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (event_id, market, outcome, COALESCE(point, -9999), book)
+           DO UPDATE SET peak_ev = MAX(peak_ev, excluded.first_ev), last_edge_seen_at = datetime('now'),
+             commence_time = excluded.commence_time`
         )
-        .bind(c.price, c.fair_prob, c.commence_time, row.id)
+        .bind(e.event_id, e.sport, e.game, e.commence_time, e.market, e.outcome, e.point, e.book,
+          e.price, e.fair_prob, e.ev, e.ev)
     );
+    if (upserts.length > 0) await db.batch(upserts);
+
+    // 2. Refresh the closing line of every logged edge whose game hasn't started. The last
+    //    write before kickoff stands as the close.
+    // Ordered soonest-first so that if there are more open edges than MAX_WRITES_PER_KIND,
+    // the write cap below keeps the ones about to kick off rather than an arbitrary slice.
+    const { results: openEdges } = await db
+      .prepare(
+        `SELECT id, event_id, market, outcome, point, book FROM edges WHERE commence_time > ?
+         ORDER BY commence_time ASC`
+      )
+      .bind(toFeedIso(scheduledMs))
+      .all();
+    const latest = new Map(closingUpdates(events, scheduledMs).map((c) => [edgeKey(c), c]));
+    for (const row of openEdges) {
+      const c = latest.get(edgeKey(row));
+      if (!c) continue;
+      closes.push(
+        db
+          .prepare(
+            `UPDATE edges SET close_price = ?, close_fair_prob = ?, close_updated_at = datetime('now'),
+               commence_time = ? WHERE id = ?`
+          )
+          .bind(c.price, c.fair_prob, c.commence_time, row.id)
+      );
+    }
+    if (closes.length > MAX_WRITES_PER_KIND) {
+      console.warn(`[edges] ${closes.length} closes to refresh, writing ${MAX_WRITES_PER_KIND}`);
+    }
+    if (closes.length > 0) await db.batch(closes.slice(0, MAX_WRITES_PER_KIND));
+  } catch (err) {
+    // A D1 failure partway through the write phase (upserts, open-edge select, closes)
+    // would otherwise leave no edge_scans row at all for this due scan. Best-effort record
+    // it as a db error -- a failure of that record itself must not mask the real error.
+    try {
+      await recordScan(db, { kind, sports, ran: 0, reason: 'db error', remaining });
+    } catch (recordErr) {
+      console.error(`[edges] failed to record db-error scan:`, recordErr.message);
+    }
+    throw err;
   }
-  if (closes.length > MAX_WRITES_PER_KIND) {
-    console.warn(`[edges] ${closes.length} closes to refresh, writing ${MAX_WRITES_PER_KIND}`);
-  }
-  if (closes.length > 0) await db.batch(closes.slice(0, MAX_WRITES_PER_KIND));
 
   await recordScan(db, { kind, sports, ran: 1, remaining, found: found.length });
   console.log(`[edges] ${kind} scan: ${found.length} edges, ${closes.length} closes updated`);
