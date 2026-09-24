@@ -97,3 +97,43 @@ CREATE TABLE IF NOT EXISTS discovered_tweet_candidates (
 
 -- No seed data: picker_stats rows are only ever inserted once a real win/loss
 -- track record exists for an author -- never a fabricated default.
+
+CREATE TABLE IF NOT EXISTS edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  sport TEXT NOT NULL,
+  game TEXT NOT NULL,
+  commence_time TEXT NOT NULL,          -- odds-feed format YYYY-MM-DDTHH:MM:SSZ
+  market TEXT NOT NULL,                 -- h2h | spreads | totals
+  outcome TEXT NOT NULL,
+  point REAL,                           -- NULL for h2h
+  book TEXT NOT NULL,
+  first_price REAL NOT NULL,            -- decimal price when first seen
+  first_fair_prob REAL NOT NULL,
+  first_ev REAL NOT NULL,
+  peak_ev REAL NOT NULL,
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_edge_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  close_price REAL,
+  close_fair_prob REAL,
+  close_updated_at TEXT
+);
+
+-- NULLs are distinct in SQLite UNIQUE constraints, so h2h rows dedupe via a sentinel.
+CREATE UNIQUE INDEX IF NOT EXISTS edges_identity
+  ON edges (event_id, market, outcome, COALESCE(point, -9999), book);
+
+CREATE INDEX IF NOT EXISTS edges_commence ON edges (commence_time);
+
+-- One row per scan that was due, whether it ran or was skipped, so thin data from
+-- skipped scans is never mistaken for thin edges.
+CREATE TABLE IF NOT EXISTS edge_scans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,                   -- discovery | closing
+  sports TEXT NOT NULL,                 -- comma-separated sport keys
+  ran INTEGER NOT NULL,                 -- 1 ran, 0 skipped
+  reason TEXT,                          -- why skipped (NULL when ran)
+  credits_remaining INTEGER,
+  edges_found INTEGER,
+  scanned_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
