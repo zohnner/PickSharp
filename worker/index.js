@@ -29,6 +29,8 @@ import { discoverCandidatesForHandle } from './xaiDiscovery.js';
 import { computeConfidenceFromOdds } from './tiering.js';
 import { generatePicks, generatePropPicks } from './pickGenerator.js';
 import { dropConflictingPicks } from './pickConflicts.js';
+import { runEdgeScan } from './edgeScan.js';
+import { summarizeEdges } from './edgeReport.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -872,6 +874,13 @@ async function handleAdminFunnel(request, env) {
   return json(summary);
 }
 
+async function handleAdminEdges(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const { results: edgeRows } = await env.DB.prepare(`SELECT * FROM edges`).all();
+  const { results: scanRows } = await env.DB.prepare(`SELECT kind, ran, reason FROM edge_scans`).all();
+  return json(summarizeEdges(edgeRows, scanRows, Date.now()));
+}
+
 const PIPELINE_SLOTS = ['morning', 'midday', 'afternoon', 'evening', 'props'];
 
 // Derived entirely from existing data (picks + daily_posts) -- no new schema. Answers
@@ -1125,6 +1134,9 @@ export default {
       if (pathname === '/api/admin/pipeline-status' && request.method === 'GET') {
         return await handleAdminPipelineStatus(request, env);
       }
+      if (pathname === '/api/admin/edges' && request.method === 'GET') {
+        return handleAdminEdges(request, env);
+      }
       if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
         return await handlePostSlot(request, env);
       }
@@ -1186,6 +1198,13 @@ export default {
       ctx.waitUntil(runDiscovery(env));
     } else {
       ctx.waitUntil(handleDailyPostCheck(env));
+      // Edge logger rides the same 5-minute cron (no new trigger -- account-wide cap).
+      // runEdgeScan itself ignores the generation cron's 0/15/30 ticks that also land here.
+      ctx.waitUntil(
+        runEdgeScan(env, event.scheduledTime).catch((err) =>
+          console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
+        )
+      );
     }
   },
 };
