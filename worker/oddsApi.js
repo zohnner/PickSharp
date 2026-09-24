@@ -20,8 +20,23 @@ const PROP_MARKETS = {
   basketball_nba: 'player_points,player_rebounds,player_assists,player_threes',
 };
 
-async function fetchSportOdds(env, sportKey) {
-  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=spreads,totals,h2h&oddsFormat=american`;
+// Generation only targets imminent games, and a request whose window holds no games is
+// billed 0 credits (verified live) -- so an off-season sport costs nothing until its
+// opener comes within range, with no hardcoded season dates.
+const ODDS_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
+// A slot's generation and its posting-time grounding check run minutes apart in one
+// invocation and used to pay for the identical fetch twice on the free 500-credit plan.
+const ODDS_CACHE_MS = 10 * 60 * 1000;
+let oddsCache = null; // { fetchedAtMs, games }
+
+export function resetOddsCacheForTests() {
+  oddsCache = null;
+}
+
+async function fetchSportOdds(env, sportKey, nowMs) {
+  const commenceTimeTo = new Date(nowMs + ODDS_WINDOW_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=spreads,totals,h2h&oddsFormat=american&commenceTimeTo=${commenceTimeTo}`;
   const res = await fetch(url);
   logQuota(res, sportKey);
   if (!res.ok) {
@@ -31,8 +46,10 @@ async function fetchSportOdds(env, sportKey) {
   return res.json();
 }
 
-export async function getUpcomingOdds(env) {
-  const results = await Promise.allSettled(SPORTS.map((sportKey) => fetchSportOdds(env, sportKey)));
+export async function getUpcomingOdds(env, { nowMs = Date.now() } = {}) {
+  if (oddsCache && nowMs - oddsCache.fetchedAtMs < ODDS_CACHE_MS) return oddsCache.games;
+
+  const results = await Promise.allSettled(SPORTS.map((sportKey) => fetchSportOdds(env, sportKey, nowMs)));
   const games = [];
   for (const result of results) {
     if (result.status === 'fulfilled') {
@@ -44,6 +61,8 @@ export async function getUpcomingOdds(env) {
   if (games.length === 0 && results.every((r) => r.status === 'rejected')) {
     throw new Error('Odds fetch failed for every sport');
   }
+  // Only a complete result is cached, so a partial outage retries on the next call.
+  if (results.every((r) => r.status === 'fulfilled')) oddsCache = { fetchedAtMs: nowMs, games };
   return games;
 }
 
