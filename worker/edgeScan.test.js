@@ -69,7 +69,7 @@ test('paused: records a skipped discovery scan and spends nothing', async () => 
   assert.equal(scanRows(db)[0].args[2], 0); // ran = 0
 });
 
-test('budget guard: skips and records when the scan would cross the reserve', async () => {
+test('budget guard: skips and records when the scan would cross the reserve floor', async () => {
   const db = fakeDb();
   let fetched = false;
   const r = await runEdgeScan({ DB: db, EDGE_SCAN_RESERVE: '150' }, DISCOVERY, {
@@ -79,6 +79,30 @@ test('budget guard: skips and records when the scan would cross the reserve', as
   assert.equal(r.reason, 'budget');
   assert.equal(fetched, false);
   assert.equal(scanRows(db)[0].args[3], 'budget');
+});
+
+// F2: the reserve is prorated by days left until the monthly quota resets, not a flat
+// floor, so far from reset day it demands far more than EDGE_SCAN_RESERVE alone. At
+// 2026-09-02T16:01:00Z with the defaults (resetDay=1, perDay=18), Oct 1 00:00 UTC is
+// 28 days 7h59m away = 28.332638... days; 18 * that = 509.9875, ceil = 510 credits --
+// well above the 30-credit floor. EDGE_SPORTS has 2 sports = 6 credits per discovery scan.
+const FAR_FROM_RESET = Date.parse('2026-09-02T16:01:00Z');
+
+test('F2: prorated reserve (not the flat floor) skips a scan far from quota reset', async () => {
+  const db = fakeDb();
+  let fetched = false;
+  const r = await runEdgeScan({ DB: db }, FAR_FROM_RESET, {
+    ...deps(515), fetchSharpComparison: async () => { fetched = true; return []; }, // 515-6=509 < 510
+  });
+  assert.equal(r.ran, false);
+  assert.equal(r.reason, 'budget');
+  assert.equal(fetched, false);
+});
+
+test('F2: prorated reserve passes once remaining credits clear the prorated amount', async () => {
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  const r = await runEdgeScan({ DB: db }, FAR_FROM_RESET, deps(516)); // 516-6=510 >= 510
+  assert.equal(r.ran, true);
 });
 
 test('discovery scan upserts found edges and records the scan', async () => {

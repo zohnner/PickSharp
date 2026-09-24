@@ -2,7 +2,9 @@
 // D1 writes. All math and timing rules live in pure modules; this file only does I/O.
 import { findEdges, closingUpdates, edgeKey } from './edges.js';
 import {
-  isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, parseReserve, toFeedIso,
+  isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, toFeedIso,
+  effectiveReserve, parseReserve, parsePositiveInt,
+  DEFAULT_CREDITS_PER_DAY, DEFAULT_QUOTA_RESET_DAY,
 } from './edgeSchedule.js';
 import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
 
@@ -45,7 +47,12 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
   }
 
   const remaining = await getBalance(env);
-  if (!withinBudget(remaining, sports.length, parseReserve(env.EDGE_SCAN_RESERVE))) {
+  const reserve = effectiveReserve(scheduledMs, {
+    floor: parseReserve(env.EDGE_SCAN_RESERVE),
+    perDay: parsePositiveInt(env.EDGE_PIPELINE_CREDITS_PER_DAY, DEFAULT_CREDITS_PER_DAY),
+    resetDay: parsePositiveInt(env.EDGE_QUOTA_RESET_DAY, DEFAULT_QUOTA_RESET_DAY),
+  });
+  if (!withinBudget(remaining, sports.length, reserve)) {
     console.log(`[edges] ${kind} scan skipped by budget guard (remaining=${remaining})`);
     await recordScan(db, { kind, sports, ran: 0, reason: 'budget', remaining });
     return { ran: false, reason: 'budget', kind };
