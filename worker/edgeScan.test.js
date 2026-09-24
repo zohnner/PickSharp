@@ -137,6 +137,45 @@ test('closing scan runs only for sports with a logged kickoff in the window, and
   assert.equal(closes[0].args.at(-1), 7); // WHERE id = 7
 });
 
+// F3/F4: with more open edges due a close refresh than MAX_WRITES_PER_KIND (15), the
+// soonest kickoffs must get the close write, not an arbitrary cap-order slice. The real
+// D1 query is trusted to do the sort (ORDER BY commence_time ASC); fakeDb hands back rows
+// in that already-sorted form, standing in for what SQL would return.
+const makeClosingEvt = (i, commenceIso) => ({
+  id: `evt${i}`, sport_key: 'americanfootball_nfl', commence_time: commenceIso,
+  home_team: 'Home', away_team: 'Away',
+  bookmakers: [
+    { key: 'pinnacle', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: 1.25 }, { name: 'Away', price: 4.5 }] }] },
+    { key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Away', price: 5.2 }] }] },
+  ],
+});
+
+test('F3: open-edge query orders by soonest kickoff, and the cap keeps the soonest', async () => {
+  const tick = Date.parse('2026-09-25T00:01:00Z');
+  const TOTAL_OPEN = 17; // > MAX_WRITES_PER_KIND (15)
+  const commenceFor = (i) => new Date(tick + (20 + i) * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const openEdgeRows = Array.from({ length: TOTAL_OPEN }, (_, i) => ({
+    id: i + 1, event_id: `evt${i}`, market: 'h2h', outcome: 'Away', point: null, book: 'fanduel',
+  }));
+  const events = Array.from({ length: TOTAL_OPEN }, (_, i) => makeClosingEvt(i, commenceFor(i)));
+
+  const db = fakeDb({
+    'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl' }],
+    'FROM edges WHERE commence_time >': openEdgeRows,
+  });
+  await runEdgeScan({ DB: db }, tick, {
+    ...deps(400), fetchSharpComparison: async () => events,
+  });
+
+  const selectStmt = db.log.find((s) => s.sql.includes('SELECT id, event_id'));
+  assert.match(selectStmt.sql, /ORDER BY commence_time ASC/);
+
+  const closes = db.log.filter((s) => s.sql.includes('SET close_price'));
+  assert.equal(closes.length, 15);
+  // ids 1..15 are the 15 soonest kickoffs (openEdgeRows is already commence-time ascending).
+  assert.deepEqual(closes.map((c) => c.args.at(-1)), Array.from({ length: 15 }, (_, i) => i + 1));
+});
+
 test('all sport fetches failing records a skipped scan and writes no edges', async () => {
   const db = fakeDb();
   const r = await runEdgeScan({ DB: db }, DISCOVERY, {

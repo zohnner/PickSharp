@@ -8,9 +8,10 @@ import {
 } from './edgeSchedule.js';
 import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
 
-// D1 allows 50 queries per invocation on the free plan: 20 upserts + 20 close updates +
-// the handful of selects/inserts around them stays under it.
-const MAX_WRITES_PER_KIND = 20;
+// D1 allows 50 queries per invocation on the free plan: 15 upserts + 15 close updates +
+// the handful of selects/inserts around them stays under it, leaving headroom for
+// handleDailyPostCheck (~5 queries) when it shares the same invocation.
+const MAX_WRITES_PER_KIND = 15;
 
 async function dueScan(db, scheduledMs) {
   if (isDiscoveryTick(scheduledMs)) return { kind: 'discovery', sports: EDGE_SPORTS };
@@ -90,8 +91,13 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
 
   // 2. Refresh the closing line of every logged edge whose game hasn't started. The last
   //    write before kickoff stands as the close.
+  // Ordered soonest-first so that if there are more open edges than MAX_WRITES_PER_KIND,
+  // the write cap below keeps the ones about to kick off rather than an arbitrary slice.
   const { results: openEdges } = await db
-    .prepare(`SELECT id, event_id, market, outcome, point, book FROM edges WHERE commence_time > ?`)
+    .prepare(
+      `SELECT id, event_id, market, outcome, point, book FROM edges WHERE commence_time > ?
+       ORDER BY commence_time ASC`
+    )
     .bind(toFeedIso(scheduledMs))
     .all();
   const latest = new Map(closingUpdates(events, scheduledMs).map((c) => [edgeKey(c), c]));
