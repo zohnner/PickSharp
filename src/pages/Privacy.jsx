@@ -59,7 +59,7 @@ export default function Privacy() {
       <h2 className="mt-8 text-lg font-semibold text-white">6. Your rights</h2>
       <p className="mt-2">
         You can request access to, correction of, or deletion of your account data at any time by contacting
-        us at [privacy@wepicksharp.com].
+        us at wepicksharp@gmail.com.
       </p>
 
       <h2 className="mt-8 text-lg font-semibold text-white">7. Children's privacy</h2>
@@ -71,7 +71,7 @@ export default function Privacy() {
       <p className="mt-2">We may update this Privacy Policy from time to time; changes take effect when posted here.</p>
 
       <h2 className="mt-8 text-lg font-semibold text-white">9. Contact</h2>
-      <p className="mt-2">Questions about this policy: [privacy@wepicksharp.com].</p>
+      <p className="mt-2">Questions about this policy: wepicksharp@gmail.com.</p>
     </div>
   );
 }

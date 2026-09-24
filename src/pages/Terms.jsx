@@ -82,7 +82,7 @@ export default function Terms() {
       </p>
 
       <h2 className="mt-8 text-lg font-semibold text-white">10. Contact</h2>
-      <p className="mt-2">Questions about these Terms: [legal@wepicksharp.com].</p>
+      <p className="mt-2">Questions about these Terms: wepicksharp@gmail.com.</p>
     </div>
   );
 }
