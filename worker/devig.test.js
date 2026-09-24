@@ -34,3 +34,14 @@ test('rejects anything but two valid decimal prices', () => {
   assert.equal(shinFairProbs([1.0, 2.0]), null);
   assert.equal(shinFairProbs([1.9, NaN]), null);
 });
+
+test('rejects zero-margin markets (booksum ≤ 1)', () => {
+  assert.equal(shinFairProbs([2.1, 2.1]), null);
+});
+
+test('handles high-margin markets correctly (guard against bisection ceiling saturation)', () => {
+  // 70/30 market inflated 40%: [1/0.98, 1/0.42]
+  const [a, b] = shinFairProbs([1 / 0.98, 1 / 0.42]);
+  close(a, 0.78);
+  close(b, 0.22);
+});
