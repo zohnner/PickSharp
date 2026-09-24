@@ -1135,7 +1135,7 @@ export default {
         return await handleAdminPipelineStatus(request, env);
       }
       if (pathname === '/api/admin/edges' && request.method === 'GET') {
-        return handleAdminEdges(request, env);
+        return await handleAdminEdges(request, env);
       }
       if (pathname === '/api/admin/post-slot' && request.method === 'POST') {
         return await handlePostSlot(request, env);
