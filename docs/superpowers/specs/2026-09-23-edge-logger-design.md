@@ -23,7 +23,7 @@ The launch gate it feeds: ~3–4 weeks or 100+ edges with average CLV of about +
   - Every scan, discovery or closing, also refreshes the closing fields for all logged edges on events that haven't started (see Storage).
 - **Budget guard:** before any paid scan, call the free `GET /v4/sports?apiKey=...` endpoint and read `x-requests-remaining`. If `remaining − 3 × sportsToScan < EDGE_SCAN_RESERVE` (a `wrangler.toml` var, default `"150"`), skip the scan and log it. That credit floor stays reserved for the AI pipeline for the rest of the month. When the monthly reset refills the quota, scanning resumes on its own.
 - **Kill switch:** `EDGE_SCAN_PAUSED` in `wrangler.toml`, exact match `=== 'true'`. It ships as `"false"`, because the budget guard is what protects the quota.
-- **Expected cost:** at most ~180 credits/month for discovery plus a few closing scans a week, always capped by the reserve. With the pipeline at ~430/month, the logger will realistically get whatever room is left before the guard kicks in. See the open question on the props slot in the plan.
+- **Expected cost:** at most ~180 credits/month for discovery plus a few closing scans a week, always capped by the reserve. With the pipeline at ~430/month, the logger will realistically get whatever room is left before the guard kicks in. **The owner chose to keep the full pipeline, props included (2026-09-23),** so the logger runs on leftover credits and may stop late in the month. The admin summary must therefore report scans skipped by the budget guard, so thin data from missing scans can't be mistaken for thin edges.
 
 ## Detection
 
