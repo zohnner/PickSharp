@@ -21,6 +21,7 @@ import {
   insertEmailSignup,
 } from './db.js';
 import { normalizeEmail } from './emailSignup.js';
+import { sendDailyEmail, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
@@ -490,6 +491,8 @@ async function handleDailyPostCheck(env) {
   await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), 'manual', ?)`)
     .bind(tweetId)
     .run();
+
+  console.log('[manual] email:', JSON.stringify(await sendDailyEmail(env, freePick)));
 }
 
 // Shared by handlePostSlot and handleVerifySlot: runs grounding (real-game) and
@@ -642,7 +645,12 @@ async function postSlot(env, slot) {
     .bind(slot, tweetId)
     .run();
 
-  return { posted: true, tweet_id: tweetId, pick_count: picks.length };
+  // The list gets the same free pick as the tweet, once per day (sendDailyEmail guards
+  // that), from whichever slot posts first.
+  const email = await sendDailyEmail(env, freePick);
+  console.log(`[${slot}] email:`, JSON.stringify(email));
+
+  return { posted: true, tweet_id: tweetId, pick_count: picks.length, email };
 }
 
 async function handlePostSlot(request, env) {
@@ -890,7 +898,15 @@ async function handleAffiliateGo(request, env) {
 async function handleAdminFunnel(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const summary = await getFunnelSummary(env.DB);
-  return json(summary);
+  const lastEmail = await env.DB.prepare(`SELECT date, recipients FROM daily_emails ORDER BY date DESC LIMIT 1`)
+    .first()
+    .catch(() => null);
+  return json({
+    ...summary,
+    email_missing_config: missingEmailConfig(env),
+    email_paused: env.EMAIL_PAUSED === 'true',
+    email_last_sent: lastEmail,
+  });
 }
 
 async function handleAdminEdges(request, env) {
@@ -1010,7 +1026,42 @@ async function handleSubscribe(request, env) {
     return json({ error: 'invalid source' }, 400);
   }
   await insertEmailSignup(env.DB, { email, buyerToken: buyer_token, source });
+  // Signing up again is an explicit opt back in after an earlier unsubscribe.
+  await env.DB.prepare('DELETE FROM email_unsubscribes WHERE email = ?').bind(email).run();
   return json({ ok: true });
+}
+
+function htmlPage(title, bodyHtml, status = 200) {
+  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
+<body style="margin:0;padding:48px 16px;background:#0a0a0a;font-family:Arial,sans-serif;color:#e5e5e5;text-align:center">
+<div style="max-width:420px;margin:0 auto">${bodyHtml}</div></body></html>`;
+  return new Response(page, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+// GET only shows a confirm button: mail scanners prefetch links, and a GET that
+// unsubscribed would silently drop people. POST does the work -- from that button, or
+// from Gmail/Outlook's one-click unsubscribe (RFC 8058), which POSTs to the same URL.
+async function handleUnsubscribe(request, env) {
+  const url = new URL(request.url);
+  const email = normalizeEmail(url.searchParams.get('email'));
+  const token = url.searchParams.get('token');
+  const valid =
+    Boolean(email) && Boolean(env.UNSUBSCRIBE_SECRET) && (await verifyUnsubscribeToken(env.UNSUBSCRIBE_SECRET, email, token));
+  if (!valid) {
+    return htmlPage('Invalid link', '<p>This unsubscribe link is invalid or expired. Reply to any PickSharp email and we\'ll remove you.</p>', 400);
+  }
+
+  if (request.method === 'POST') {
+    await env.DB.prepare('INSERT OR IGNORE INTO email_unsubscribes (email) VALUES (?)').bind(email).run();
+    return htmlPage('Unsubscribed', '<p style="font-size:18px">You\'re unsubscribed.</p><p style="color:#a3a3a3">You won\'t get any more PickSharp emails.</p>');
+  }
+
+  const safeEmail = email.replace(/[&<>"']/g, '');
+  return htmlPage(
+    'Unsubscribe',
+    `<p style="font-size:18px">Unsubscribe ${safeEmail} from PickSharp emails?</p>
+<form method="POST"><button type="submit" style="margin-top:16px;padding:12px 20px;background:#c6971f;color:#171717;font-weight:bold;border:0;border-radius:6px;cursor:pointer">Unsubscribe</button></form>`
+  );
 }
 
 // Never throws -- callable from both an admin-triggered endpoint (needs a response)
@@ -1157,6 +1208,9 @@ export default {
       }
       if (pathname === '/api/track-source' && request.method === 'POST') {
         return await handleTrackSource(request, env);
+      }
+      if (pathname === '/api/unsubscribe' && (request.method === 'GET' || request.method === 'POST')) {
+        return await handleUnsubscribe(request, env);
       }
       if (pathname === '/api/subscribe' && request.method === 'POST') {
         return await handleSubscribe(request, env);

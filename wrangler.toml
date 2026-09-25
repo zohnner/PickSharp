@@ -36,6 +36,12 @@ ADMIN_EMAILS = "zohnwheeler@gmail.com"
 POSTING_PAUSED = "false"
 AFFILIATE_LINK = "https://ak.draftkings.com"
 XAI_DISCOVERY_PAUSED = "false"
+# Daily free-pick email (worker/email.js). Stays off until all four of RESEND_API_KEY and
+# UNSUBSCRIBE_SECRET (secrets) plus EMAIL_FROM and EMAIL_POSTAL_ADDRESS are set.
+# EMAIL_FROM must use a domain verified in Resend. EMAIL_POSTAL_ADDRESS is legally
+# required (CAN-SPAM) in every email -- a PO box or registered-agent address works.
+EMAIL_PAUSED = "false"
+EMAIL_FROM = "PickSharp <picks@wepicksharp.com>"
 XAI_DISCOVERY_BUDGET_CEILING_USD = "18"
 # Edge logger (docs/superpowers/specs/2026-09-23-edge-logger-design.md). Exact "true" pauses.
 EDGE_SCAN_PAUSED = "false"

@@ -404,6 +404,16 @@ export default function AdminPanel({ session, loadingSession }) {
               <p className="text-xs text-neutral-500">Email signups ({funnel.email_signups_total ?? 0} total)</p>
             </div>
           </div>
+          <p className="mt-3 text-xs text-neutral-500">
+            Daily email:{' '}
+            {funnel.email_missing_config?.length > 0
+              ? `off — set ${funnel.email_missing_config.join(', ')}`
+              : funnel.email_paused
+                ? 'paused (EMAIL_PAUSED)'
+                : 'on'}
+            {funnel.email_last_sent &&
+              ` · last sent ${funnel.email_last_sent.date} to ${funnel.email_last_sent.recipients ?? '?'} recipient(s)`}
+          </p>
         </div>
       )}
 

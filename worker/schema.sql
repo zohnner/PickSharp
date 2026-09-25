@@ -147,3 +147,19 @@ CREATE TABLE IF NOT EXISTS email_signups (
   source TEXT,                          -- where the form was shown, e.g. 'picks_page'
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Addresses that opted out. Kept separate from email_signups so re-running this file
+-- never needs an ALTER, and so an unsubscribe survives the address signing up again
+-- until they explicitly re-subscribe (handleSubscribe clears the row).
+CREATE TABLE IF NOT EXISTS email_unsubscribes (
+  email TEXT PRIMARY KEY,
+  unsubscribed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One row per ET day the daily email went out: the idempotency guard against a second
+-- slot (or a cron redelivery) emailing the list twice.
+CREATE TABLE IF NOT EXISTS daily_emails (
+  date TEXT PRIMARY KEY,
+  recipients INTEGER,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
