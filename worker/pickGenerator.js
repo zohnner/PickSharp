@@ -155,8 +155,9 @@ function summarizeGame(g) {
 
 function buildPrompt(oddsGames) {
   const now = new Date().toISOString();
-  const upcoming = oddsGames.filter((g) => new Date(g.commence_time).getTime() > Date.now());
-  const gamesForPrompt = (upcoming.length > 0 ? upcoming : oddsGames)
+  // Callers pass only today's slate (see todaysSlate in index.js), so every game here
+  // kicks off today -- no fallback to already-started games.
+  const gamesForPrompt = oddsGames
     .slice()
     .sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time))
     .slice(0, 15);
@@ -164,12 +165,12 @@ function buildPrompt(oddsGames) {
 
   return `You are generating sports betting picks for PickSharp, a sports-picks website. These are PickSharp's own picks -- do not attribute them to any real person.
 
-The current time is ${now} (UTC). Only pick games that have NOT started yet as of this time -- every game listed below has a kickoff after this time, sorted soonest first. Strongly prefer the soonest upcoming games over ones further in the future, since these picks need to be useful to someone reading them right now.
+The current time is ${now} (UTC). The games listed below are today's full remaining slate -- every one kicks off later today, sorted soonest first. Only pick from these games; these picks need to be useful to someone reading them right now.
 
-Upcoming games and real odds (soonest first):
+Today's games and real odds (soonest first):
 ${gamesSummary}
 
-Generate 3 to 5 picks grounded in this real data, prioritizing the games kicking off soonest. Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
+Generate 3 to 5 picks grounded in this real data. If only one or two games are listed, make multiple picks on the same game using different markets (spread, moneyline, total). Respond with ONLY a JSON array, no other text, where each element has exactly these fields:
 - pick_type: one of "spread", "moneyline", "prop", "over_under"
 - game: the exact "<away_team> @ <home_team>" string from the data above, verbatim, unabbreviated
 - game_time_utc: the exact commence_time value from the data above for that game, verbatim

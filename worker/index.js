@@ -67,6 +67,21 @@ function isStale(pick) {
   return Boolean(pick.game_time_utc) && pick.game_time_utc <= new Date().toISOString();
 }
 
+// A slot's picks are only useful if they're for games people can bet on today -- a
+// Thursday post exists for Thursday Night Football, not Sunday's slate. The slate runs
+// from now until the next 09:00 UTC (5 AM EDT / 4 AM EST), so late West Coast kickoffs
+// still count as "tonight" while tomorrow's games never do. Every generation cron fires
+// after 09:00 UTC, so this always resolves to the following morning.
+function todaysSlate(oddsGames, now = new Date()) {
+  const end = new Date(now);
+  end.setUTCHours(9, 0, 0, 0);
+  if (end <= now) end.setUTCDate(end.getUTCDate() + 1);
+  return oddsGames.filter((g) => {
+    const commence = new Date(g.commence_time).getTime();
+    return commence > now.getTime() && commence < end.getTime();
+  });
+}
+
 function matchesRealGame(pick, oddsGames) {
   if (!pick.game_time_utc) return true;
   const pickTime = new Date(pick.game_time_utc).getTime();
@@ -637,9 +652,12 @@ async function generateForSlot(env, slot) {
     console.error(`[${slot}] Odds fetch failed, cannot generate:`, err.message);
     return { skipped: true, reason: 'odds fetch failed' };
   }
+  // Everything below (prompt, grounding, confidence) only ever sees today's games, so
+  // the model can't pick -- and grounding can't accept -- a game from later in the week.
+  oddsGames = todaysSlate(oddsGames);
   if (oddsGames.length === 0) {
-    console.log(`[${slot}] No upcoming games, skipping generation.`);
-    return { skipped: true, reason: 'no games' };
+    console.log(`[${slot}] No games left on today's slate, skipping generation.`);
+    return { skipped: true, reason: 'no games today' };
   }
 
   let candidates;
@@ -711,13 +729,12 @@ async function generateForPropsSlot(env) {
     return { skipped: true, reason: 'odds fetch failed' };
   }
 
-  const upcoming = oddsGames
-    .filter((g) => new Date(g.commence_time).getTime() > Date.now())
+  const upcoming = todaysSlate(oddsGames)
     .sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time))
     .slice(0, 3);
   if (upcoming.length === 0) {
-    console.log('[props] No upcoming games, skipping generation.');
-    return { skipped: true, reason: 'no games' };
+    console.log("[props] No games left on today's slate, skipping generation.");
+    return { skipped: true, reason: 'no games today' };
   }
 
   const propResults = await Promise.allSettled(upcoming.map((game) => getEventProps(env, game.sport_key, game.id)));
