@@ -12,7 +12,7 @@ export default function Landing() {
           checked against real odds before it's ever posted.
         </p>
         <Link
-          to="/auth"
+          to="/picks"
           className="mt-8 inline-block rounded-md bg-gradient-to-b from-[#f3dd8f] via-[#c6971f] to-[#8a6a17] px-6 py-3 text-base font-semibold text-neutral-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] hover:from-[#f7e6a8] hover:via-[#d4a72e] hover:to-[#9c7818]"
         >
           Get Free Picks

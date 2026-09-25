@@ -137,3 +137,13 @@ CREATE TABLE IF NOT EXISTS edge_scans (
   edges_found INTEGER,
   scanned_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Email list for tonight's-edge alerts. buyer_token ties a signup back to the visit's
+-- attribution (buyer_sources) without requiring an account.
+CREATE TABLE IF NOT EXISTS email_signups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  buyer_token TEXT,
+  source TEXT,                          -- where the form was shown, e.g. 'picks_page'
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

@@ -386,7 +386,7 @@ export default function AdminPanel({ session, loadingSession }) {
       {funnel && (
         <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           <span className="text-sm font-semibold text-white">Today's funnel</span>
-          <div className="mt-2 grid grid-cols-3 gap-4 text-center">
+          <div className="mt-2 grid grid-cols-2 gap-4 text-center sm:grid-cols-4">
             <div>
               <p className="text-2xl font-bold text-white">{funnel.checkout_started}</p>
               <p className="text-xs text-neutral-500">Checkouts started</p>
@@ -398,6 +398,10 @@ export default function AdminPanel({ session, loadingSession }) {
             <div>
               <p className="text-2xl font-bold text-white">{funnel.affiliate_click}</p>
               <p className="text-xs text-neutral-500">Affiliate clicks</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{funnel.email_signups_today ?? 0}</p>
+              <p className="text-xs text-neutral-500">Email signups ({funnel.email_signups_total ?? 0} total)</p>
             </div>
           </div>
         </div>

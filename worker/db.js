@@ -79,7 +79,24 @@ export async function getFunnelSummary(db) {
     )
     .first();
 
-  const summary = { checkout_started: 0, affiliate_click: 0, checkout_completed: unlocks.count };
+  // Falls back to zeros if email_signups doesn't exist yet (schema not migrated), so the
+  // rest of the funnel still loads.
+  const signups = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN date(created_at, '-4 hours') = date('now', '-4 hours') THEN 1 ELSE 0 END) AS today
+       FROM email_signups`
+    )
+    .first()
+    .catch(() => ({ total: 0, today: 0 }));
+
+  const summary = {
+    checkout_started: 0,
+    affiliate_click: 0,
+    checkout_completed: unlocks.count,
+    email_signups_today: signups.today || 0,
+    email_signups_total: signups.total || 0,
+  };
   for (const row of eventCounts) {
     summary[row.event_type] = row.count;
   }
@@ -227,4 +244,14 @@ export async function getDiscoveredCandidates(db) {
 
 export async function dismissCandidate(db, id) {
   await db.prepare('UPDATE discovered_tweet_candidates SET dismissed = 1 WHERE id = ?').bind(id).run();
+}
+
+// Returns true when the address is new, false when it was already on the list -- the
+// caller treats both as success so the form never reveals who's already signed up.
+export async function insertEmailSignup(db, { email, buyerToken, source }) {
+  const result = await db
+    .prepare('INSERT OR IGNORE INTO email_signups (email, buyer_token, source) VALUES (?, ?, ?)')
+    .bind(email, buyerToken || null, source || null)
+    .run();
+  return result.meta.changes > 0;
 }

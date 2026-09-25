@@ -17,6 +17,11 @@ export default function Privacy() {
           handled by our authentication provider, Supabase.
         </li>
         <li>
+          <strong className="text-neutral-300">Email list:</strong> if you join our email list, the address
+          you enter, used only to send you PickSharp picks and updates. Every email will include a way to
+          unsubscribe.
+        </li>
+        <li>
           <strong className="text-neutral-300">Payment info:</strong> handled entirely by Stripe. We never
           see or store your full card number.
         </li>

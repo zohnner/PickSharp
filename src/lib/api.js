@@ -116,3 +116,10 @@ export async function trackSource(buyerToken, source) {
     body: JSON.stringify({ buyer_token: buyerToken, source }),
   });
 }
+
+export async function subscribeEmail(email, buyerToken, source) {
+  return request('/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ email, buyer_token: buyerToken, source }),
+  });
+}

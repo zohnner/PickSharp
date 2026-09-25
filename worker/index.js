@@ -18,7 +18,9 @@ import {
   insertDiscoveredCandidates,
   getDiscoveredCandidates,
   dismissCandidate,
+  insertEmailSignup,
 } from './db.js';
+import { normalizeEmail } from './emailSignup.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
@@ -997,6 +999,20 @@ async function handleTrackSource(request, env) {
   return json({ ok: true });
 }
 
+async function handleSubscribe(request, env) {
+  const { email: rawEmail, buyer_token, source } = await request.json().catch(() => ({}));
+  const email = normalizeEmail(rawEmail);
+  if (!email) return json({ error: 'Please enter a valid email address' }, 400);
+  if (buyer_token !== undefined && (typeof buyer_token !== 'string' || buyer_token.length > 64)) {
+    return json({ error: 'invalid buyer_token' }, 400);
+  }
+  if (source !== undefined && (typeof source !== 'string' || !/^[a-z0-9_-]{1,32}$/.test(source))) {
+    return json({ error: 'invalid source' }, 400);
+  }
+  await insertEmailSignup(env.DB, { email, buyerToken: buyer_token, source });
+  return json({ ok: true });
+}
+
 // Never throws -- callable from both an admin-triggered endpoint (needs a response)
 // and ctx.waitUntil in the scheduled handler (no response to send). Every failure
 // path returns a summary object instead, same convention as postSlot/generateForSlot.
@@ -1141,6 +1157,9 @@ export default {
       }
       if (pathname === '/api/track-source' && request.method === 'POST') {
         return await handleTrackSource(request, env);
+      }
+      if (pathname === '/api/subscribe' && request.method === 'POST') {
+        return await handleSubscribe(request, env);
       }
       if (pathname === '/api/go/affiliate' && request.method === 'GET') {
         return await handleAffiliateGo(request, env);

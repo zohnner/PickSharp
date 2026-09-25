@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PickCard from '../components/PickCard.jsx';
+import EmailCapture from '../components/EmailCapture.jsx';
 import { getBuyerToken } from '../lib/buyerToken.js';
 import { getTodaysPicks, checkoutBundle, confirmCheckout, trackSource } from '../lib/api.js';
 
@@ -82,6 +83,8 @@ export default function Picks() {
       <p className="mt-3 text-xs text-neutral-600">
         No account needed to unlock a pick — just tied to this browser.
       </p>
+
+      <EmailCapture buyerToken={buyerToken} />
 
       {lockedPicks.length >= 2 && (
         <div className="mt-6 rounded-md border border-sharp-700/40 bg-sharp-900/20 p-4 text-sm text-sharp-200">
