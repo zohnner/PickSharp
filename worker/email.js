@@ -78,13 +78,11 @@ export function composeDailyEmail(pick, { siteUrl, unsubscribeLink, postalAddres
   return { subject, text, html };
 }
 
-async function buildMessage(env, email, pick) {
+// compose(unsubscribeLink, postalAddress) -> { subject, text, html }, so every list email
+// gets its recipient's own signed unsubscribe link and the one-click headers.
+async function buildMessage(env, email, compose) {
   const link = await unsubscribeUrl(env, email);
-  const { subject, text, html } = composeDailyEmail(pick, {
-    siteUrl: env.PUBLIC_SITE_URL,
-    unsubscribeLink: link,
-    postalAddress: env.EMAIL_POSTAL_ADDRESS,
-  });
+  const { subject, text, html } = compose(link, env.EMAIL_POSTAL_ADDRESS);
   return {
     from: env.EMAIL_FROM,
     to: [email],
@@ -95,12 +93,40 @@ async function buildMessage(env, email, pick) {
   };
 }
 
+const pickComposer = (env, pick) => (unsubscribeLink, postalAddress) =>
+  composeDailyEmail(pick, { siteUrl: env.PUBLIC_SITE_URL, unsubscribeLink, postalAddress });
+
+// Sends one composed email to everyone subscribed, in Resend-sized batches. Callers own
+// their idempotency claim; this only reports what went out.
+export async function sendToList(env, compose) {
+  const { results } = await env.DB.prepare(
+    `SELECT email FROM email_signups WHERE email NOT IN (SELECT email FROM email_unsubscribes)`
+  ).all();
+  const emails = results.map((r) => r.email);
+  if (emails.length === 0) return { recipients: 0, delivered: 0, errors: [] };
+
+  const messages = await Promise.all(emails.map((email) => buildMessage(env, email, compose)));
+  let delivered = 0;
+  const errors = [];
+  for (let i = 0; i < messages.length; i += RESEND_BATCH_LIMIT) {
+    const batch = messages.slice(i, i + RESEND_BATCH_LIMIT);
+    const res = await fetch(RESEND_BATCH_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(batch),
+    });
+    if (res.ok) delivered += batch.length;
+    else errors.push(`${res.status} ${await res.text()}`);
+  }
+  return { recipients: emails.length, delivered, errors };
+}
+
 // One real email to one address, outside the once-a-day guard and the list -- so the
 // owner can check Resend setup and how the email renders before the list ever gets one.
 export async function sendTestEmail(env, to, pick) {
   const missing = missingEmailConfig(env);
   if (missing.length > 0) return { sent: false, reason: `not configured: ${missing.join(', ')}` };
-  const message = await buildMessage(env, to, pick);
+  const message = await buildMessage(env, to, typeof pick === 'function' ? pick : pickComposer(env, pick));
   message.subject = `[TEST] ${message.subject}`;
   const res = await fetch(RESEND_BATCH_URL, {
     method: 'POST',
@@ -124,28 +150,10 @@ export async function sendDailyEmail(env, pick) {
     const claim = await env.DB.prepare(`INSERT OR IGNORE INTO daily_emails (date) VALUES (date('now', '-4 hours'))`).run();
     if (claim.meta.changes === 0) return { sent: false, reason: 'already sent today' };
 
-    const { results } = await env.DB.prepare(
-      `SELECT email FROM email_signups WHERE email NOT IN (SELECT email FROM email_unsubscribes)`
-    ).all();
-    const emails = results.map((r) => r.email);
-    if (emails.length === 0) {
+    const { recipients, delivered, errors } = await sendToList(env, pickComposer(env, pick));
+    if (recipients === 0) {
       await env.DB.prepare(`UPDATE daily_emails SET recipients = 0 WHERE date = date('now', '-4 hours')`).run();
       return { sent: true, recipients: 0 };
-    }
-
-    const messages = await Promise.all(emails.map((email) => buildMessage(env, email, pick)));
-
-    let delivered = 0;
-    const errors = [];
-    for (let i = 0; i < messages.length; i += RESEND_BATCH_LIMIT) {
-      const batch = messages.slice(i, i + RESEND_BATCH_LIMIT);
-      const res = await fetch(RESEND_BATCH_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(batch),
-      });
-      if (res.ok) delivered += batch.length;
-      else errors.push(`${res.status} ${await res.text()}`);
     }
 
     if (delivered === 0) {

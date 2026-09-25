@@ -21,7 +21,7 @@ import {
   insertEmailSignup,
 } from './db.js';
 import { normalizeEmail } from './emailSignup.js';
-import { sendDailyEmail, sendTestEmail, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
+import { sendDailyEmail, sendTestEmail, sendToList, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession, verifyStripeSignature, stripeMode, paidSessionPickIds } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
@@ -37,6 +37,7 @@ import { summarizeEdges } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
 import { isPostFailure, sendAdminAlert } from './alerts.js';
+import { isRecapTick, buildWeeklyRecap, composeRecapTweet, composeRecapEmail } from './recap.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -926,17 +927,109 @@ async function handleAdminFunnel(request, env) {
 
 // Public: only games that have kicked off (buildRecord enforces it), so nothing here
 // gives away a live edge.
-async function handleGetRecord(request, env) {
+async function loadRecord(env, nowMs = Date.now()) {
   const { results } = await env.DB.prepare(
     `SELECT e.*, g.home_team, g.away_team, g.home_score, g.away_score, g.status AS result_status
      FROM edges e LEFT JOIN game_results g ON g.event_id = e.event_id
      WHERE e.commence_time <= ?`
   )
-    .bind(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
+    .bind(new Date(nowMs).toISOString().replace(/\.\d{3}Z$/, 'Z'))
     .all();
-  const res = json(buildRecord(results, Date.now()));
+  return buildRecord(results, nowMs);
+}
+
+async function handleGetRecord(request, env) {
+  const res = json(await loadRecord(env));
   res.headers.set('Cache-Control', 'public, max-age=300');
   return res;
+}
+
+// Claims one channel of this week's recap: true only for the caller that flips it from
+// NULL to 'sending', so a cron redelivery or a second admin click can't double-post.
+async function claimRecapChannel(env, weekStart, column) {
+  await env.DB.prepare('INSERT OR IGNORE INTO weekly_recaps (week_start) VALUES (?)').bind(weekStart).run();
+  const r = await env.DB.prepare(`UPDATE weekly_recaps SET ${column} = 'sending' WHERE week_start = ? AND ${column} IS NULL`)
+    .bind(weekStart)
+    .run();
+  return r.meta.changes === 1;
+}
+
+// Never throws. Posts last week's recap to X and emails it to the list, each at most once.
+async function runWeeklyRecap(env, nowMs = Date.now()) {
+  try {
+    const recap = buildWeeklyRecap(await loadRecord(env, nowMs), nowMs);
+    if (!recap) return { ran: false, reason: 'no publish-bar edges settled last week' };
+    const out = { week: recap.label };
+
+    if (env.POSTING_PAUSED === 'true') out.tweet = 'posting paused';
+    else if (!(await claimRecapChannel(env, recap.weekStart, 'tweet_status'))) out.tweet = 'already posted';
+    else {
+      try {
+        const tweetId = await postTweet(env, composeRecapTweet(recap, env.PUBLIC_SITE_URL));
+        await env.DB.prepare(`UPDATE weekly_recaps SET tweet_status = 'posted', tweet_id = ? WHERE week_start = ?`)
+          .bind(tweetId, recap.weekStart)
+          .run();
+        out.tweet = `posted ${tweetId}`;
+      } catch (err) {
+        await env.DB.prepare('UPDATE weekly_recaps SET tweet_status = NULL WHERE week_start = ?').bind(recap.weekStart).run();
+        out.tweet = `failed: ${err.message}`;
+      }
+    }
+
+    const missing = missingEmailConfig(env);
+    if (env.EMAIL_PAUSED === 'true') out.email = 'email paused';
+    else if (missing.length > 0) out.email = `not configured: ${missing.join(', ')}`;
+    else if (!(await claimRecapChannel(env, recap.weekStart, 'email_status'))) out.email = 'already sent';
+    else {
+      const { delivered, errors } = await sendToList(env, (unsubscribeLink, postalAddress) =>
+        composeRecapEmail(recap, { siteUrl: env.PUBLIC_SITE_URL, unsubscribeLink, postalAddress })
+      );
+      const failedEverything = delivered === 0 && errors.length > 0;
+      await env.DB.prepare(
+        `UPDATE weekly_recaps SET email_status = ?, email_recipients = ? WHERE week_start = ?`
+      )
+        .bind(failedEverything ? null : 'sent', failedEverything ? null : delivered, recap.weekStart)
+        .run();
+      out.email = failedEverything ? `failed: ${errors.join('; ')}` : `sent to ${delivered}`;
+    }
+
+    if (/^failed/.test(out.tweet) || /^failed/.test(out.email || '')) {
+      await sendAdminAlert(env, 'recap', 'weekly recap did not fully go out', [
+        `Weekly recap for ${recap.label}:`,
+        `X: ${out.tweet}`,
+        `Email: ${out.email}`,
+        '',
+        'Use "Post weekly recap now" on the admin panel to retry the failed part.',
+      ]);
+    }
+    return { ran: true, ...out };
+  } catch (err) {
+    return { ran: false, reason: err.message };
+  }
+}
+
+async function handleAdminRecapPreview(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const recap = buildWeeklyRecap(await loadRecord(env), Date.now());
+  if (!recap) return json({ recap: null });
+  return json({ recap, tweet: composeRecapTweet(recap, env.PUBLIC_SITE_URL) });
+}
+
+async function handleAdminRecapRun(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  return json(await runWeeklyRecap(env));
+}
+
+async function handleAdminRecapTestEmail(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const to = normalizeEmail((env.ADMIN_EMAILS || '').split(',')[0]);
+  if (!to) return json({ error: 'ADMIN_EMAILS is not configured' }, 500);
+  const recap = buildWeeklyRecap(await loadRecord(env), Date.now());
+  if (!recap) return json({ error: 'No publish-bar edges settled last week -- nothing to recap yet' }, 400);
+  const result = await sendTestEmail(env, to, (unsubscribeLink, postalAddress) =>
+    composeRecapEmail(recap, { siteUrl: env.PUBLIC_SITE_URL, unsubscribeLink, postalAddress })
+  );
+  return result.sent ? json(result) : json({ error: result.reason }, 502);
 }
 
 async function handleAdminGrade(request, env) {
@@ -1290,6 +1383,15 @@ export default {
       if (pathname === '/api/record' && request.method === 'GET') {
         return await handleGetRecord(request, env);
       }
+      if (pathname === '/api/admin/recap-preview' && request.method === 'GET') {
+        return await handleAdminRecapPreview(request, env);
+      }
+      if (pathname === '/api/admin/recap' && request.method === 'POST') {
+        return await handleAdminRecapRun(request, env);
+      }
+      if (pathname === '/api/admin/recap-test-email' && request.method === 'POST') {
+        return await handleAdminRecapTestEmail(request, env);
+      }
       if (pathname === '/api/admin/grade' && request.method === 'POST') {
         return await handleAdminGrade(request, env);
       }
@@ -1364,6 +1466,9 @@ export default {
           console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
         )
       );
+      if (isRecapTick(event.scheduledTime)) {
+        ctx.waitUntil(runWeeklyRecap(env, event.scheduledTime).then((r) => console.log('[recap]', JSON.stringify(r))));
+      }
       if (isGradingTick(event.scheduledTime)) {
         ctx.waitUntil(
           runGrading(env, event.scheduledTime)

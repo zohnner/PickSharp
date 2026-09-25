@@ -137,3 +137,18 @@ export async function gradeNow() {
   const headers = await authHeaders();
   return request('/admin/grade', { method: 'POST', headers });
 }
+
+export async function getRecapPreview() {
+  const headers = await authHeaders();
+  return request('/admin/recap-preview', { headers });
+}
+
+export async function sendRecapTestEmail() {
+  const headers = await authHeaders();
+  return request('/admin/recap-test-email', { method: 'POST', headers });
+}
+
+export async function postRecapNow() {
+  const headers = await authHeaders();
+  return request('/admin/recap', { method: 'POST', headers });
+}

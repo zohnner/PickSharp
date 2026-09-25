@@ -47,7 +47,7 @@ function bestPerSelection(rows) {
   return [...best.values()];
 }
 
-function stats(entries) {
+export function stats(entries) {
   const count = (g) => entries.filter((e) => e.grade === g).length;
   const wins = count('win');
   const losses = count('loss');

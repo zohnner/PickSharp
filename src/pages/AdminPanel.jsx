@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, gradeNow } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -51,6 +51,8 @@ export default function AdminPanel({ session, loadingSession }) {
   const [funnel, setFunnel] = useState(null);
   const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [gradeStatus, setGradeStatus] = useState(null);
+  const [recapStatus, setRecapStatus] = useState(null);
+  const [recapTweet, setRecapTweet] = useState(null);
   const [pipeline, setPipeline] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [spend, setSpend] = useState(null);
@@ -171,6 +173,36 @@ export default function AdminPanel({ session, loadingSession }) {
     } catch (err) {
       setGradeStatus(`Failed: ${err.message}`);
     }
+  };
+
+  const runRecapAction = async (label, action) => {
+    setRecapStatus(`${label}…`);
+    try {
+      setRecapStatus(await action());
+    } catch (err) {
+      setRecapStatus(`Failed: ${err.message}`);
+    }
+  };
+
+  const handleRecapPreview = () =>
+    runRecapAction('Loading', async () => {
+      const { recap, tweet } = await getRecapPreview();
+      setRecapTweet(tweet || null);
+      return recap ? `Preview for ${recap.label}` : 'No 2%+ edges settled last week — nothing would post.';
+    });
+
+  const handleRecapTestEmail = () =>
+    runRecapAction('Sending', async () => {
+      const { to } = await sendRecapTestEmail();
+      return `Recap email sent to ${to}.`;
+    });
+
+  const handleRecapPost = () => {
+    if (!window.confirm("Post last week's recap to X and email it to the whole list now? Each only goes out once per week.")) return;
+    runRecapAction('Posting', async () => {
+      const r = await postRecapNow();
+      return r.ran ? `${r.week} — X: ${r.tweet} · Email: ${r.email}` : `Nothing posted: ${r.reason}`;
+    });
   };
 
   const handleVerify = async () => {
@@ -482,6 +514,32 @@ export default function AdminPanel({ session, loadingSession }) {
           </button>
           {gradeStatus && <span className="text-xs text-neutral-400">{gradeStatus}</span>}
         </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <span className="text-sm font-semibold text-white">Weekly recap</span>
+        <p className="mt-1 text-xs text-neutral-500">
+          Posts automatically Mondays at 10 AM ET: last week's 2%+ edges to X and the email list, win or lose.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {[
+            ['Preview', handleRecapPreview],
+            ['Send recap email to me', handleRecapTestEmail],
+            ['Post weekly recap now', handleRecapPost],
+          ].map(([label, onClick]) => (
+            <button
+              key={label}
+              onClick={onClick}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-800"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {recapStatus && <p className="mt-2 text-xs text-neutral-400">{recapStatus}</p>}
+        {recapTweet && (
+          <pre className="mt-2 whitespace-pre-wrap rounded-md bg-neutral-950 p-3 text-xs text-neutral-300">{recapTweet}</pre>
+        )}
       </div>
 
       <h2 className="mt-10 text-lg font-semibold text-white">Current Picks</h2>

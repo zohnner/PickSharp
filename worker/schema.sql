@@ -186,3 +186,15 @@ CREATE TABLE IF NOT EXISTS admin_alerts (
   sent_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (date, alert_key)
 );
+
+-- One row per weekly recap (week_start = the Monday's ET date, YYYYMMDD). Each channel is
+-- claimed separately ('sending' -> done, or back to NULL on failure) so a retry never
+-- double-posts a channel that already went out.
+CREATE TABLE IF NOT EXISTS weekly_recaps (
+  week_start TEXT PRIMARY KEY,
+  tweet_status TEXT,                    -- NULL | sending | posted
+  tweet_id TEXT,
+  email_status TEXT,                    -- NULL | sending | sent
+  email_recipients INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
