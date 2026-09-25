@@ -78,6 +78,39 @@ export function composeDailyEmail(pick, { siteUrl, unsubscribeLink, postalAddres
   return { subject, text, html };
 }
 
+async function buildMessage(env, email, pick) {
+  const link = await unsubscribeUrl(env, email);
+  const { subject, text, html } = composeDailyEmail(pick, {
+    siteUrl: env.PUBLIC_SITE_URL,
+    unsubscribeLink: link,
+    postalAddress: env.EMAIL_POSTAL_ADDRESS,
+  });
+  return {
+    from: env.EMAIL_FROM,
+    to: [email],
+    subject,
+    text,
+    html,
+    headers: { 'List-Unsubscribe': `<${link}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+  };
+}
+
+// One real email to one address, outside the once-a-day guard and the list -- so the
+// owner can check Resend setup and how the email renders before the list ever gets one.
+export async function sendTestEmail(env, to, pick) {
+  const missing = missingEmailConfig(env);
+  if (missing.length > 0) return { sent: false, reason: `not configured: ${missing.join(', ')}` };
+  const message = await buildMessage(env, to, pick);
+  message.subject = `[TEST] ${message.subject}`;
+  const res = await fetch(RESEND_BATCH_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify([message]),
+  });
+  if (!res.ok) return { sent: false, reason: `Resend ${res.status}: ${await res.text()}` };
+  return { sent: true, to };
+}
+
 // Never throws -- called right after a slot's tweet posts, where a failed email must
 // not look like a failed post. Returns a summary object like postSlot does.
 export async function sendDailyEmail(env, pick) {
@@ -100,24 +133,7 @@ export async function sendDailyEmail(env, pick) {
       return { sent: true, recipients: 0 };
     }
 
-    const messages = await Promise.all(
-      emails.map(async (email) => {
-        const link = await unsubscribeUrl(env, email);
-        const { subject, text, html } = composeDailyEmail(pick, {
-          siteUrl: env.PUBLIC_SITE_URL,
-          unsubscribeLink: link,
-          postalAddress: env.EMAIL_POSTAL_ADDRESS,
-        });
-        return {
-          from: env.EMAIL_FROM,
-          to: [email],
-          subject,
-          text,
-          html,
-          headers: { 'List-Unsubscribe': `<${link}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
-        };
-      })
-    );
+    const messages = await Promise.all(emails.map((email) => buildMessage(env, email, pick)));
 
     let delivered = 0;
     const errors = [];

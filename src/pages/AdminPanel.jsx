@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -49,6 +49,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifyResults, setVerifyResults] = useState(null);
   const [verifyError, setVerifyError] = useState(null);
   const [funnel, setFunnel] = useState(null);
+  const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [pipeline, setPipeline] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [spend, setSpend] = useState(null);
@@ -144,6 +145,16 @@ export default function AdminPanel({ session, loadingSession }) {
       setCandidates((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestEmailStatus('Sending…');
+    try {
+      const { to } = await sendTestEmail();
+      setTestEmailStatus(`Sent to ${to} — check your inbox (and spam).`);
+    } catch (err) {
+      setTestEmailStatus(`Failed: ${err.message}`);
     }
   };
 
@@ -414,6 +425,16 @@ export default function AdminPanel({ session, loadingSession }) {
             {funnel.email_last_sent &&
               ` · last sent ${funnel.email_last_sent.date} to ${funnel.email_last_sent.recipients ?? '?'} recipient(s)`}
           </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleTestEmail}
+              disabled={testEmailStatus === 'Sending…'}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+            >
+              Send test email to me
+            </button>
+            {testEmailStatus && <span className="text-xs text-neutral-400">{testEmailStatus}</span>}
+          </div>
         </div>
       )}
 

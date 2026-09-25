@@ -123,3 +123,8 @@ export async function subscribeEmail(email, buyerToken, source) {
     body: JSON.stringify({ email, buyer_token: buyerToken, source }),
   });
 }
+
+export async function sendTestEmail() {
+  const headers = await authHeaders();
+  return request('/admin/test-email', { method: 'POST', headers });
+}

@@ -21,7 +21,7 @@ import {
   insertEmailSignup,
 } from './db.js';
 import { normalizeEmail } from './emailSignup.js';
-import { sendDailyEmail, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
+import { sendDailyEmail, sendTestEmail, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
@@ -1031,6 +1031,28 @@ async function handleSubscribe(request, env) {
   return json({ ok: true });
 }
 
+const SAMPLE_PICK = {
+  author: 'PickSharp',
+  pick_text: 'Sample pick -- no picks posted yet today',
+  game: 'Away Team @ Home Team',
+  game_time: null,
+};
+
+// Sends to the first ADMIN_EMAILS address only, so this can never email the list.
+async function handleAdminTestEmail(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const to = normalizeEmail((env.ADMIN_EMAILS || '').split(',')[0]);
+  if (!to) return json({ error: 'ADMIN_EMAILS is not configured' }, 500);
+
+  const picks = await getTodaysPicksRaw(env.DB);
+  const live = picks.filter((p) => !isStale(p));
+  const pool = live.length > 0 ? live : picks;
+  const pick = pool.find((p) => p.id === freePickId(pool)) || SAMPLE_PICK;
+
+  const result = await sendTestEmail(env, to, pick);
+  return result.sent ? json(result) : json({ error: result.reason }, 502);
+}
+
 function htmlPage(title, bodyHtml, status = 200) {
   const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
 <body style="margin:0;padding:48px 16px;background:#0a0a0a;font-family:Arial,sans-serif;color:#e5e5e5;text-align:center">
@@ -1217,6 +1239,9 @@ export default {
       }
       if (pathname === '/api/go/affiliate' && request.method === 'GET') {
         return await handleAffiliateGo(request, env);
+      }
+      if (pathname === '/api/admin/test-email' && request.method === 'POST') {
+        return await handleAdminTestEmail(request, env);
       }
       if (pathname === '/api/admin/funnel' && request.method === 'GET') {
         return await handleAdminFunnel(request, env);
