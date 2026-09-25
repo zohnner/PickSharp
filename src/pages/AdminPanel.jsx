@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, gradeNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -50,6 +50,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifyError, setVerifyError] = useState(null);
   const [funnel, setFunnel] = useState(null);
   const [testEmailStatus, setTestEmailStatus] = useState(null);
+  const [gradeStatus, setGradeStatus] = useState(null);
   const [pipeline, setPipeline] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [spend, setSpend] = useState(null);
@@ -155,6 +156,20 @@ export default function AdminPanel({ session, loadingSession }) {
       setTestEmailStatus(`Sent to ${to} — check your inbox (and spam).`);
     } catch (err) {
       setTestEmailStatus(`Failed: ${err.message}`);
+    }
+  };
+
+  const handleGrade = async () => {
+    setGradeStatus('Grading…');
+    try {
+      const r = await gradeNow();
+      setGradeStatus(
+        `Checked ${r.checked} game(s): ${r.graded} graded, ${r.unmatched} unmatched` +
+          (r.deferred ? `, ${r.deferred} deferred to next run` : '') +
+          (r.errors ? ` — errors: ${r.errors.join('; ')}` : '')
+      );
+    } catch (err) {
+      setGradeStatus(`Failed: ${err.message}`);
     }
   };
 
@@ -437,6 +452,24 @@ export default function AdminPanel({ session, loadingSession }) {
           </div>
         </div>
       )}
+
+      <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <span className="text-sm font-semibold text-white">Edge grading</span>
+        <p className="mt-1 text-xs text-neutral-500">
+          Runs automatically 4–7 AM ET. Pulls final scores from ESPN for games with logged edges; results
+          show on the public <a href="/record" className="underline">record page</a>.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleGrade}
+            disabled={gradeStatus === 'Grading…'}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            Grade now
+          </button>
+          {gradeStatus && <span className="text-xs text-neutral-400">{gradeStatus}</span>}
+        </div>
+      </div>
 
       <h2 className="mt-10 text-lg font-semibold text-white">Current Picks</h2>
       <div className="mt-4 space-y-3">

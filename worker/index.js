@@ -34,6 +34,8 @@ import { generatePicks, generatePropPicks } from './pickGenerator.js';
 import { dropConflictingPicks } from './pickConflicts.js';
 import { runEdgeScan } from './edgeScan.js';
 import { summarizeEdges } from './edgeReport.js';
+import { runGrading, isGradingTick } from './gradeGames.js';
+import { buildRecord } from './record.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -909,6 +911,26 @@ async function handleAdminFunnel(request, env) {
   });
 }
 
+// Public: only games that have kicked off (buildRecord enforces it), so nothing here
+// gives away a live edge.
+async function handleGetRecord(request, env) {
+  const { results } = await env.DB.prepare(
+    `SELECT e.*, g.home_team, g.away_team, g.home_score, g.away_score, g.status AS result_status
+     FROM edges e LEFT JOIN game_results g ON g.event_id = e.event_id
+     WHERE e.commence_time <= ?`
+  )
+    .bind(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
+    .all();
+  const res = json(buildRecord(results, Date.now()));
+  res.headers.set('Cache-Control', 'public, max-age=300');
+  return res;
+}
+
+async function handleAdminGrade(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  return json(await runGrading(env));
+}
+
 async function handleAdminEdges(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const { results: edgeRows } = await env.DB.prepare(`SELECT * FROM edges`).all();
@@ -1249,6 +1271,12 @@ export default {
       if (pathname === '/api/admin/pipeline-status' && request.method === 'GET') {
         return await handleAdminPipelineStatus(request, env);
       }
+      if (pathname === '/api/record' && request.method === 'GET') {
+        return await handleGetRecord(request, env);
+      }
+      if (pathname === '/api/admin/grade' && request.method === 'POST') {
+        return await handleAdminGrade(request, env);
+      }
       if (pathname === '/api/admin/edges' && request.method === 'GET') {
         return await handleAdminEdges(request, env);
       }
@@ -1320,6 +1348,13 @@ export default {
           console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
         )
       );
+      if (isGradingTick(event.scheduledTime)) {
+        ctx.waitUntil(
+          runGrading(env, event.scheduledTime)
+            .then((r) => r.checked > 0 && console.log('[grading]', JSON.stringify(r)))
+            .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
+        );
+      }
     }
   },
 };

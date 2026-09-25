@@ -13,11 +13,14 @@ export default function Nav({ session }) {
     <header className="border-b border-neutral-800 bg-neutral-950">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
         <Link to="/" className="flex items-center">
-          <img src="/logo-white.png" alt="PickSharp" className="h-11 w-auto" />
+          <img src="/logo-white.png" alt="PickSharp" className="h-9 w-auto sm:h-11" />
         </Link>
-        <nav className="flex items-center gap-6">
+        <nav className="flex items-center gap-4 sm:gap-6">
           <NavLink to="/picks" className={linkClass}>
             Picks
+          </NavLink>
+          <NavLink to="/record" className={linkClass}>
+            Record
           </NavLink>
           {session ? (
             <>
@@ -34,7 +37,7 @@ export default function Nav({ session }) {
           ) : (
             <Link
               to="/auth"
-              className="rounded-md bg-gradient-to-b from-[#f3dd8f] via-[#c6971f] to-[#8a6a17] px-4 py-2 text-sm font-semibold text-neutral-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] hover:from-[#f7e6a8] hover:via-[#d4a72e] hover:to-[#9c7818]"
+              className="whitespace-nowrap rounded-md bg-gradient-to-b from-[#f3dd8f] via-[#c6971f] to-[#8a6a17] px-3 py-2 text-sm font-semibold text-neutral-900 sm:px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] hover:from-[#f7e6a8] hover:via-[#d4a72e] hover:to-[#9c7818]"
             >
               Get Free Picks
             </Link>

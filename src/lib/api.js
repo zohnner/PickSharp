@@ -128,3 +128,12 @@ export async function sendTestEmail() {
   const headers = await authHeaders();
   return request('/admin/test-email', { method: 'POST', headers });
 }
+
+export async function getRecord() {
+  return request('/record');
+}
+
+export async function gradeNow() {
+  const headers = await authHeaders();
+  return request('/admin/grade', { method: 'POST', headers });
+}

@@ -163,3 +163,17 @@ CREATE TABLE IF NOT EXISTS daily_emails (
   recipients INTEGER,
   sent_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Final scores for games that have logged edges, keyed by the Odds API event id and
+-- stored with Odds API team names so edges grade directly against them. 'unmatched'
+-- rows stop retries for games ESPN never returned a final for (see gradeGames.js).
+CREATE TABLE IF NOT EXISTS game_results (
+  event_id TEXT PRIMARY KEY,
+  sport TEXT NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_score INTEGER,
+  away_score INTEGER,
+  status TEXT NOT NULL,                 -- final | unmatched
+  graded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

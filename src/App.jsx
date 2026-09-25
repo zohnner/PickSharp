@@ -4,6 +4,7 @@ import Nav from './components/Nav.jsx';
 import Footer from './components/Footer.jsx';
 import Landing from './pages/Landing.jsx';
 import Picks from './pages/Picks.jsx';
+import Record from './pages/Record.jsx';
 import Auth from './pages/Auth.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
@@ -33,6 +34,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/picks" element={<Picks />} />
+          <Route path="/record" element={<Record />} />
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />
           <Route path="/dashboard" element={<Dashboard session={session} />} />
           <Route path="/admin" element={<AdminPanel session={session} loadingSession={loadingSession} />} />

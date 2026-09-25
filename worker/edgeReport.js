@@ -10,7 +10,7 @@ const countBy = (rows, fn) => rows.reduce((acc, r) => ((acc[fn(r)] = (acc[fn(r)]
 // Only a close written within 20 minutes of kickoff is trusted as settled.
 const CLOSE_GRACE_MS = 20 * 60 * 1000;
 const hasKickedOff = (r, nowMs) => Date.parse(r.commence_time) <= nowMs;
-const isValidClose = (r, nowMs) => {
+export const isValidClose = (r, nowMs) => {
   if (r.close_fair_prob == null || !hasKickedOff(r, nowMs)) return false;
   return sqlTimeMs(r.close_updated_at) >= Date.parse(r.commence_time) - CLOSE_GRACE_MS;
 };
