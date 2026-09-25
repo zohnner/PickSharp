@@ -24,18 +24,28 @@ export default function Picks() {
       .finally(() => setLoading(false));
   };
 
-  const runConfirm = (sessionId) => {
+  // Stripe's webhook normally unlocks before the buyer is even back here; this is the
+  // belt to that suspender. A 402 can mean Stripe hasn't marked the session paid yet, so
+  // it retries briefly. Picks load either way -- the webhook may already have unlocked.
+  const runConfirm = async (sessionId) => {
     setConfirmError(null);
-    confirmCheckout(sessionId, buyerToken)
-      .then(() => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await confirmCheckout(sessionId, buyerToken);
         const next = new URLSearchParams(searchParams);
         next.delete('session_id');
         setSearchParams(next, { replace: true });
         loadPicks();
-      })
-      .catch((err) => {
-        setConfirmError(err.message);
-      });
+        return;
+      } catch (err) {
+        if (err.status !== 402 || attempt === 3) {
+          setConfirmError(err.message);
+          loadPicks();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
   };
 
   useEffect(() => {
@@ -107,6 +117,10 @@ export default function Picks() {
       {confirmError && searchParams.get('session_id') && (
         <div className="mt-6 rounded-md border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
           <p>We couldn't confirm your payment: {confirmError}</p>
+          <p className="mt-1 text-xs text-red-300/80">
+            If you were charged, your picks will unlock automatically within a minute — refresh this page.
+            Still locked? Email wepicksharp@gmail.com with your receipt.
+          </p>
           <button
             onClick={() => runConfirm(searchParams.get('session_id'))}
             className="mt-2 font-semibold underline"

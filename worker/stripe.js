@@ -62,3 +62,41 @@ export async function retrieveCheckoutSession(env, sessionId) {
   }
   return stripeRequest(env, 'GET', `/checkout/sessions/${encodeURIComponent(sessionId)}`);
 }
+
+// Stripe signs each webhook as HMAC-SHA256(secret, `${t}.${rawBody}`) in the
+// Stripe-Signature header ("t=...,v1=...[,v1=...]"). Rejects anything older than
+// `toleranceSec` so a captured request can't be replayed later.
+export async function verifyStripeSignature(rawBody, header, secret, nowSec = Math.floor(Date.now() / 1000), toleranceSec = 300) {
+  if (!header || !secret) return false;
+  const parts = header.split(',').map((p) => p.trim().split('='));
+  const t = parts.find(([k]) => k === 't')?.[1];
+  const signatures = parts.filter(([k]) => k === 'v1').map(([, v]) => v);
+  if (!t || !/^\d+$/.test(t) || signatures.length === 0) return false;
+  if (Math.abs(nowSec - Number(t)) > toleranceSec) return false;
+
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${rawBody}`));
+  const expected = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return signatures.some((sig) => {
+    if (sig.length !== expected.length) return false;
+    let diff = 0;
+    for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+    return diff === 0;
+  });
+}
+
+// For the admin panel: which kind of key is configured, without exposing it.
+export function stripeMode(secretKey) {
+  if (!secretKey) return 'missing';
+  if (/^(sk|rk)_live_/.test(secretKey)) return 'live';
+  if (/^(sk|rk)_test_/.test(secretKey)) return 'test';
+  return 'unrecognized';
+}
+
+// Pick ids a paid Checkout Session is owed, or null if it isn't a paid PickSharp session.
+export function paidSessionPickIds(session) {
+  if (session?.payment_status !== 'paid') return null;
+  if (!session.metadata?.buyer_token || !session.metadata?.pick_ids) return null;
+  const ids = session.metadata.pick_ids.split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return ids.length > 0 ? ids : null;
+}

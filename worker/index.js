@@ -23,7 +23,7 @@ import {
 import { normalizeEmail } from './emailSignup.js';
 import { sendDailyEmail, sendTestEmail, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
-import { createCheckoutSession, retrieveCheckoutSession } from './stripe.js';
+import { createCheckoutSession, retrieveCheckoutSession, verifyStripeSignature, stripeMode, paidSessionPickIds } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds, getEventProps } from './oddsApi.js';
@@ -433,16 +433,37 @@ async function handleCheckoutConfirm(request, env) {
     return json({ error: 'buyer_token does not match this session' }, 400);
   }
 
-  if (!session.metadata?.pick_ids) {
-    return json({ error: 'Session has no associated picks' }, 400);
-  }
-  const pickIds = session.metadata.pick_ids.split(',').map(Number).filter(Number.isInteger);
-  if (pickIds.length === 0) {
+  const pickIds = paidSessionPickIds(session);
+  if (!pickIds) {
     return json({ error: 'Session has no associated picks' }, 400);
   }
   await insertUnlocks(env.DB, { buyerToken, pickIds, stripeSessionId: sessionId });
 
   return json({ unlocked_pick_ids: pickIds });
+}
+
+// The unlock path that doesn't depend on the buyer's browser: Stripe calls this when a
+// Checkout Session is paid, so a closed tab, a failed redirect or an in-app browser that
+// drops the return trip still unlocks. Shares insertUnlocks' (session, pick) uniqueness
+// with /checkout/confirm, so whichever arrives second is a no-op.
+async function handleStripeWebhook(request, env) {
+  const rawBody = await request.text();
+  const valid = await verifyStripeSignature(rawBody, request.headers.get('Stripe-Signature'), env.STRIPE_WEBHOOK_SECRET);
+  if (!valid) return json({ error: 'Invalid signature' }, 400);
+
+  const event = JSON.parse(rawBody);
+  // async_payment_succeeded covers delayed methods (e.g. bank debits) that complete
+  // the session as 'unpaid' first; for cards, completed already arrives as 'paid'.
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+    const session = event.data?.object;
+    const pickIds = paidSessionPickIds(session);
+    if (pickIds) {
+      await insertUnlocks(env.DB, { buyerToken: session.metadata.buyer_token, pickIds, stripeSessionId: session.id });
+      console.log(`[stripe] ${event.type}: unlocked ${pickIds.join(',')} for session ${session.id}`);
+    }
+  }
+  // Everything else is acknowledged so Stripe doesn't keep retrying it.
+  return json({ received: true });
 }
 
 // "Today" is anchored to US Eastern time (fixed -4h/EDT offset — would need -5h during EST/winter months; not auto-adjusted).
@@ -908,6 +929,8 @@ async function handleAdminFunnel(request, env) {
     email_missing_config: missingEmailConfig(env),
     email_paused: env.EMAIL_PAUSED === 'true',
     email_last_sent: lastEmail,
+    stripe_mode: stripeMode(env.STRIPE_SECRET_KEY),
+    stripe_webhook_configured: Boolean(env.STRIPE_WEBHOOK_SECRET),
   });
 }
 
@@ -1246,6 +1269,9 @@ export default {
       }
       if (pathname === '/api/checkout/bundle' && request.method === 'POST') {
         return await handleCheckoutBundle(request, env);
+      }
+      if (pathname === '/api/stripe/webhook' && request.method === 'POST') {
+        return await handleStripeWebhook(request, env);
       }
       if (pathname === '/api/checkout/confirm' && request.method === 'GET') {
         return await handleCheckoutConfirm(request, env);

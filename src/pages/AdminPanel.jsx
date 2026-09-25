@@ -440,6 +440,19 @@ export default function AdminPanel({ session, loadingSession }) {
             {funnel.email_last_sent &&
               ` · last sent ${funnel.email_last_sent.date} to ${funnel.email_last_sent.recipients ?? '?'} recipient(s)`}
           </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            Stripe:{' '}
+            {{
+              live: 'live key',
+              test: 'TEST key — real cards will fail',
+              missing: 'STRIPE_SECRET_KEY not set — checkout is broken',
+              unrecognized: 'STRIPE_SECRET_KEY is not a secret key (sk_/rk_)',
+            }[funnel.stripe_mode] || 'unknown'}
+            {' · '}
+            {funnel.stripe_webhook_configured
+              ? 'webhook on'
+              : 'webhook off — set STRIPE_WEBHOOK_SECRET or unlocks depend on the redirect'}
+          </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
               onClick={handleTestEmail}
