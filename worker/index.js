@@ -36,6 +36,7 @@ import { runEdgeScan } from './edgeScan.js';
 import { summarizeEdges } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
+import { isPostFailure, sendAdminAlert } from './alerts.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -874,18 +875,7 @@ async function generateForPropsSlot(env) {
 }
 
 async function generateAndPostPropsSlot(env) {
-  try {
-    const generated = await generateForPropsSlot(env);
-    console.log('[props] generation:', JSON.stringify(generated));
-  } catch (err) {
-    console.error('[props] generateForPropsSlot threw unexpectedly:', err.message);
-  }
-  try {
-    const posted = await postSlot(env, 'props');
-    console.log('[props] posting:', JSON.stringify(posted));
-  } catch (err) {
-    console.error('[props] postSlot threw unexpectedly:', err.message);
-  }
+  return generateAndPostSlot(env, 'props');
 }
 
 const GENERATION_SLOTS = ['morning', 'midday', 'afternoon', 'evening', 'props'];
@@ -1377,7 +1367,17 @@ export default {
       if (isGradingTick(event.scheduledTime)) {
         ctx.waitUntil(
           runGrading(env, event.scheduledTime)
-            .then((r) => r.checked > 0 && console.log('[grading]', JSON.stringify(r)))
+            .then(async (r) => {
+              if (r.checked > 0) console.log('[grading]', JSON.stringify(r));
+              if (r.errors) {
+                await sendAdminAlert(env, 'grading', 'edge grading hit errors', [
+                  'Overnight grading could not fetch some ESPN scoreboards:',
+                  ...r.errors,
+                  '',
+                  'Affected games stay ungraded and are retried on later runs.',
+                ]);
+              }
+            })
             .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
         );
       }
@@ -1391,16 +1391,31 @@ export default {
 // already succeeded. Both halves already avoid throwing internally; the try/catch here
 // is a last-resort guard so ctx.waitUntil never sees an unhandled rejection.
 async function generateAndPostSlot(env, slot) {
+  const generate = slot === 'props' ? generateForPropsSlot : generateForSlot;
+  let generated;
+  let posted;
   try {
-    const generated = await generateForSlot(env, slot);
+    generated = await generate(env, slot);
     console.log(`[${slot}] generation:`, JSON.stringify(generated));
   } catch (err) {
-    console.error(`[${slot}] generateForSlot threw unexpectedly:`, err.message);
+    generated = { threw: err.message };
+    console.error(`[${slot}] generation threw unexpectedly:`, err.message);
   }
   try {
-    const posted = await postSlot(env, slot);
+    posted = await postSlot(env, slot);
     console.log(`[${slot}] posting:`, JSON.stringify(posted));
   } catch (err) {
+    posted = { posted: false, reason: `postSlot threw: ${err.message}` };
     console.error(`[${slot}] postSlot threw unexpectedly:`, err.message);
+  }
+
+  if (isPostFailure(posted)) {
+    const alert = await sendAdminAlert(env, `slot:${slot}`, `${slot} slot did not post`, [
+      `The ${slot} slot ran but nothing was posted to X.`,
+      '',
+      `Posting: ${posted.reason || 'unknown reason'}`,
+      `Generation: ${JSON.stringify(generated)}`,
+    ]);
+    console.log(`[${slot}] alert:`, JSON.stringify(alert));
   }
 }

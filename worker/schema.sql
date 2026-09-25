@@ -177,3 +177,12 @@ CREATE TABLE IF NOT EXISTS game_results (
   status TEXT NOT NULL,                 -- final | unmatched
   graded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per alert sent per ET day: keeps a failure that repeats (cron redelivery,
+-- the same slot failing on retry) from emailing the owner more than once a day.
+CREATE TABLE IF NOT EXISTS admin_alerts (
+  date TEXT NOT NULL,
+  alert_key TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (date, alert_key)
+);
