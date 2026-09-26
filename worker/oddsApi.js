@@ -1,4 +1,6 @@
 import { toFeedIso } from './edgeSchedule.js';
+import { etDate, espnScoreboardUrl } from './grading.js';
+import { parseEspnOdds } from './espnOdds.js';
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 // The Odds API bills per request (markets x regions); a drained quota makes every slot
@@ -22,13 +24,8 @@ const PROP_MARKETS = {
   basketball_nba: 'player_points,player_rebounds,player_assists,player_threes',
 };
 
-// Generation only targets imminent games, and a request whose window holds no games is
-// billed 0 credits (verified live) -- so an off-season sport costs nothing until its
-// opener comes within range, with no hardcoded season dates.
-const ODDS_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-
 // A slot's generation and its posting-time grounding check run minutes apart in one
-// invocation and used to pay for the identical fetch twice on the free 500-credit plan.
+// invocation; the ESPN college scoreboard is ~1.2 MB, so parse it once, not twice.
 const ODDS_CACHE_MS = 10 * 60 * 1000;
 let oddsCache = null; // { fetchedAtMs, games }
 
@@ -36,16 +33,13 @@ export function resetOddsCacheForTests() {
   oddsCache = null;
 }
 
+// The pick pipeline's lines come from ESPN (free) so the 500-credit Odds API plan is
+// left entirely to the edge engine. Only the current Eastern date is fetched: the slate
+// is "tonight", and each extra college scoreboard costs real CPU on the free plan.
 async function fetchSportOdds(env, sportKey, nowMs) {
-  const commenceTimeTo = new Date(nowMs + ODDS_WINDOW_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&regions=us&markets=spreads,totals,h2h&oddsFormat=american&commenceTimeTo=${commenceTimeTo}`;
-  const res = await fetch(url);
-  logQuota(res, sportKey);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`The Odds API request failed for ${sportKey}: ${res.status} ${body}`);
-  }
-  return res.json();
+  const res = await fetch(espnScoreboardUrl(sportKey, etDate(nowMs)));
+  if (!res.ok) throw new Error(`ESPN scoreboard request failed for ${sportKey}: ${res.status}`);
+  return parseEspnOdds(await res.json(), sportKey);
 }
 
 export async function getUpcomingOdds(env, { nowMs = Date.now() } = {}) {

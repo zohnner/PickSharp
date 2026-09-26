@@ -8,7 +8,21 @@ beforeEach(() => {
   resetOddsCacheForTests();
   globalThis.fetch = async (url) => {
     calls.push(String(url));
-    return new Response(JSON.stringify([{ id: String(calls.length) }]), { status: 200 });
+    const events = [
+      {
+        id: String(calls.length),
+        date: '2026-09-24T23:00Z',
+        competitions: [
+          {
+            competitors: [
+              { homeAway: 'home', team: { displayName: 'Home' } },
+              { homeAway: 'away', team: { displayName: 'Away' } },
+            ],
+          },
+        ],
+      },
+    ];
+    return new Response(JSON.stringify({ events }), { status: 200 });
   };
 });
 
@@ -31,12 +45,21 @@ test('refetches once the cache window has passed', async () => {
   assert.equal(calls.length, callsAfterFirst * 2);
 });
 
-test('limits each request to games kicking off within 3 days, so off-season sports cost nothing', async () => {
-  await getUpcomingOdds(env, { nowMs: Date.parse('2026-09-24T13:00:00Z') });
-  assert.ok(calls.length > 0);
+test('pick-pipeline odds come from ESPN (free), never the credit-billed Odds API', async () => {
+  const games = await getUpcomingOdds(env, { nowMs: Date.parse('2026-09-24T13:00:00Z') });
+  assert.equal(calls.length, 3);
   for (const url of calls) {
-    assert.match(url, /commenceTimeTo=2026-09-27T13:00:00Z/);
+    assert.match(url, /^https:\/\/site\.api\.espn\.com\//);
+    assert.match(url, /dates=20260924/);
   }
+  assert.ok(calls.some((u) => u.includes('college-football') && u.includes('groups=80')));
+  assert.equal(games.length, 3);
+  assert.deepEqual(new Set(games.map((g) => g.sport_key)).size, 3);
+});
+
+test('asks for the Eastern date, so a late-night UTC fetch still gets tonight', async () => {
+  await getUpcomingOdds(env, { nowMs: Date.parse('2026-09-25T02:00:00Z') });
+  for (const url of calls) assert.match(url, /dates=20260924/);
 });
 
 test('sharp comparison names pinnacle + US books, decimal odds, and a 7-day window', async () => {

@@ -1444,17 +1444,15 @@ export default {
     // the configured cron expression verbatim or in some normalized form, and a mismatch
     // there would silently break dispatch. Standard JS Date UTC semantics are unambiguous.
     const SLOT_HOURS = { 13: 'morning', 17: 'midday', 22: 'evening' };
+    // The 22:15 props slot is off: ESPN (the pick pipeline's free odds source) has no
+    // player props, and per-event props on the Odds API cost credits the edge engine
+    // needs on the 500/mo plan. Its :15 ticks fall through to the safe no-op branch.
     const fired = new Date(event.scheduledTime);
     const isGenerationDay = [0, 4, 6].includes(fired.getUTCDay()); // Sun, Thu, Sat
     const hour = fired.getUTCHours();
     const minute = fired.getUTCMinutes();
     if (isGenerationDay && minute === 0 && SLOT_HOURS[hour]) {
       ctx.waitUntil(generateAndPostSlot(env, SLOT_HOURS[hour]));
-    } else if (isGenerationDay && hour === 22 && minute === 15) {
-      // Only this specific firing is meaningful -- 13:15/17:15 also match this cron
-      // (consolidated to stay under Cloudflare's account-wide 5-trigger cap) but fall
-      // through to the branch below, which is already a safe no-op there.
-      ctx.waitUntil(generateAndPostPropsSlot(env));
     } else if (isGenerationDay && hour === 12 && minute === 30) {
       ctx.waitUntil(runDiscovery(env));
     } else {
