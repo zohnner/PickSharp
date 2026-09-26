@@ -68,7 +68,9 @@ export function tweetLength(text) {
   );
 }
 
-export async function postTweet(env, text) {
+// replyTo threads the post under an existing tweet. X's API only permits replies it
+// considers allowed (e.g. when summoned); a refused reply throws like any failed post.
+export async function postTweet(env, text, { replyTo } = {}) {
   const url = `${X_API_BASE}/tweets`;
   const authHeader = await buildAuthHeader(env, 'POST', url);
 
@@ -78,7 +80,7 @@ export async function postTweet(env, text) {
       Authorization: authHeader,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(replyTo ? { text, reply: { in_reply_to_tweet_id: replyTo } } : { text }),
   });
 
   let data;

@@ -3,6 +3,8 @@
 // scan just logged) and one X post. Its result lands in the next morning's results post.
 import { PUBLISH_BAR_EV, BOOK_NAMES, americanOdds, selectionLabel } from './record.js';
 import { tweetLength, TWEET_LIMIT } from './x.js';
+import { gradeEdge, unitsFor } from './grading.js';
+import { isValidClose } from './edgeReport.js';
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -79,4 +81,35 @@ export function composeFreeEdgeTweet(edge, siteUrl) {
     if (tweetLength(text) <= TWEET_LIMIT) return text;
   }
   return build(variants.at(-1));
+}
+
+// ---- Next morning: reply under the free edge with how it did ----
+// Threaded under the original post so anyone who saw the pick sees the result. No link:
+// the reply is a plain post ($0.015), not a summoned one.
+
+// 13:36 UTC: five minutes after the daily results post, well after overnight grading.
+export function isFreeEdgeResultTick(ms) {
+  const d = new Date(ms);
+  return d.getUTCHours() === 13 && d.getUTCMinutes() === 36;
+}
+
+const signed = (x, digits) => `${x > 0 ? '+' : ''}${x.toFixed(digits)}`;
+
+// r: the posted edge row joined with its game_results final. Returns null when the
+// result can't be graded against the edge (e.g. team names that don't match).
+export function composeFreeEdgeResultReply(r, nowMs) {
+  const grade = gradeEdge(r, r);
+  if (!grade) return null;
+  const head = { win: '✅ Cashed', loss: '❌ Lost', push: '➖ Push' }[grade];
+  const bet = `${selectionLabel(r)} (${fmtOdds(americanOdds(r.first_price))})`;
+  const final = `Final: ${r.away_team} ${r.away_score}, ${r.home_team} ${r.home_score}`;
+  const units = `${signed(unitsFor(grade, r.first_price), 2)}u`;
+
+  let clvLine = 'CLV: no closing line captured for this one.';
+  if (isValidClose(r, nowMs)) {
+    const clv = r.first_price * r.close_fair_prob - 1;
+    const est = r.close_point != null && r.close_point !== r.point ? ' (est.)' : '';
+    clvLine = `CLV ${signed(clv * 100, 1)}%${est}` + (clv > 0 ? ': we beat the closing price.' : '.');
+  }
+  return [`${head}: ${bet} · ${units}`, final, clvLine, '', 'Every edge, graded: link in bio'].join('\n');
 }

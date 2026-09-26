@@ -28,7 +28,13 @@ import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds, getEventProps, getRemainingCredits } from './oddsApi.js';
 import { loadUsage, usageWarnings } from './usage.js';
-import { isFreeEdgeTick, selectFreeEdge, composeFreeEdgeTweet } from './freeEdge.js';
+import {
+  isFreeEdgeTick,
+  selectFreeEdge,
+  composeFreeEdgeTweet,
+  isFreeEdgeResultTick,
+  composeFreeEdgeResultReply,
+} from './freeEdge.js';
 import { etDate } from './grading.js';
 import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
 import { discoverCandidatesForHandle } from './xaiDiscovery.js';
@@ -1034,6 +1040,61 @@ async function runFreeEdge(env, nowMs) {
   }
 }
 
+// Never throws. Replies under each posted free edge once its game is graded. A refused
+// reply is marked 'failed' and not retried -- X may not allow a bot to reply to itself --
+// and the owner gets X's error once.
+async function runFreeEdgeResult(env, nowMs) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT e.*, g.home_team, g.away_team, g.home_score, g.away_score, g.status AS result_status,
+              f.date AS post_date, f.tweet_id AS free_tweet_id
+       FROM free_edge_posts f
+       JOIN edges e ON e.id = f.edge_id
+       JOIN game_results g ON g.event_id = e.event_id
+       WHERE f.status = 'posted' AND f.result_status IS NULL`
+    ).all();
+    const mark = (date, status, tweetId = null) =>
+      env.DB.prepare('UPDATE free_edge_posts SET result_status = ?, result_tweet_id = ? WHERE date = ?')
+        .bind(status, tweetId, date)
+        .run();
+    const out = [];
+    for (const r of results) {
+      const text = r.result_status === 'final' ? composeFreeEdgeResultReply(r, nowMs) : null;
+      if (!text) {
+        await mark(r.post_date, 'void');
+        out.push({ date: r.post_date, reply: 'void' });
+        continue;
+      }
+      if (env.POSTING_PAUSED === 'true') {
+        out.push({ date: r.post_date, reply: 'posting paused' });
+        continue;
+      }
+      const claim = await env.DB.prepare(
+        `UPDATE free_edge_posts SET result_status = 'sending' WHERE date = ? AND result_status IS NULL`
+      )
+        .bind(r.post_date)
+        .run();
+      if (claim.meta.changes !== 1) continue;
+      try {
+        const tweetId = await postTweet(env, text, { replyTo: r.free_tweet_id });
+        await mark(r.post_date, 'posted', tweetId);
+        out.push({ date: r.post_date, reply: tweetId });
+      } catch (err) {
+        await mark(r.post_date, 'failed');
+        await sendAdminAlert(env, 'free-edge-result', 'free edge result reply was refused', [
+          `Replying under the ${r.post_date} free edge failed: ${err.message}`,
+          '',
+          "If X refuses bot replies to our own posts, the result still appears in the morning results post.",
+        ]);
+        out.push({ date: r.post_date, reply: `failed: ${err.message}` });
+      }
+    }
+    return out;
+  } catch (err) {
+    return [{ error: err.message }];
+  }
+}
+
 // Never throws. Once a day, emails the owner if any API is at 80%+ of its free limit.
 async function runUsageCheck(env, nowMs) {
   try {
@@ -1598,6 +1659,9 @@ export default {
           console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
         )
       );
+      if (isFreeEdgeResultTick(event.scheduledTime)) {
+        ctx.waitUntil(runFreeEdgeResult(env, event.scheduledTime).then((r) => console.log('[free-edge-result]', JSON.stringify(r))));
+      }
       if (isFreeEdgeTick(event.scheduledTime)) {
         ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
       }

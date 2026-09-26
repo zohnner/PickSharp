@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isFreeEdgeTick, selectFreeEdge, composeFreeEdgeTweet } from './freeEdge.js';
+import { isFreeEdgeTick, selectFreeEdge, composeFreeEdgeTweet, isFreeEdgeResultTick, composeFreeEdgeResultReply } from './freeEdge.js';
 import { tweetLength } from './x.js';
 
 const NOW = Date.parse('2026-09-27T16:06:00Z'); // Sunday, 5 min after the discovery scan
@@ -71,4 +71,50 @@ test('very long team names drop optional copy but keep the bet, matchup, link an
 
 test('tweetLength counts links as 23 like X does', () => {
   assert.equal(tweetLength('see https://wepicksharp.com/record?ref=x_free_edge'), 4 + 23);
+});
+
+// Next-morning reply under the free edge with how it did. Result rows are
+// edges JOIN game_results: scores plus the edge's close fields.
+const settled = (o) => ({
+  ...row(),
+  home_team: 'San Francisco 49ers', away_team: 'Arizona Cardinals', home_score: 24, away_score: 20,
+  close_fair_prob: 0.55, close_updated_at: '2026-09-27 20:00:00', close_point: 7.5, ...o,
+});
+const AFTER = Date.parse('2026-09-28T13:36:00Z');
+
+test('result reply fires daily at 13:36 UTC only', () => {
+  assert.equal(isFreeEdgeResultTick(AFTER), true);
+  assert.equal(isFreeEdgeResultTick(Date.parse('2026-09-28T13:31:00Z')), false);
+});
+
+test('a win says it cashed, with the final score and CLV, and no link', () => {
+  const reply = composeFreeEdgeResultReply(settled(), AFTER); // ARI +7.5, lost by 4 -> covers
+  assert.match(reply, /^✅ Cashed/);
+  assert.match(reply, /Arizona Cardinals \+7\.5 \(-105\)/);
+  assert.match(reply, /Final: Arizona Cardinals 20, San Francisco 49ers 24/);
+  assert.match(reply, /\+0\.95u/);
+  assert.match(reply, /CLV \+7\.3%/); // 1.95 * 0.55 - 1
+  assert.doesNotMatch(reply, /https?:\/\/|\.com/);
+  assert.ok(tweetLength(reply) <= 280);
+});
+
+test('a loss is posted just as plainly, and says whether it still beat the close', () => {
+  const loss = composeFreeEdgeResultReply(settled({ home_score: 34, away_score: 20 }), AFTER);
+  assert.match(loss, /^❌ Lost/);
+  assert.match(loss, /-1\.00u/);
+  assert.match(loss, /beat the closing price/);
+  const badClose = composeFreeEdgeResultReply(settled({ home_score: 34, away_score: 20, close_fair_prob: 0.5 }), AFTER);
+  assert.match(badClose, /CLV -2\.5%/);
+  assert.doesNotMatch(badClose, /beat the closing price/);
+});
+
+test('a push, a missing close, and an estimated close are all stated honestly', () => {
+  assert.match(composeFreeEdgeResultReply(settled({ point: 4, home_score: 24, away_score: 20 }), AFTER), /^➖ Push/);
+  assert.match(composeFreeEdgeResultReply(settled({ close_fair_prob: null }), AFTER), /no closing line captured/);
+  assert.match(composeFreeEdgeResultReply(settled({ close_point: 6.5 }), AFTER), /CLV \+7\.3% \(est\.\)/);
+});
+
+test('an ungradable result gives no reply', () => {
+  const renamed = settled({ home_team: 'Someone Else', away_team: 'Another Team' });
+  assert.equal(composeFreeEdgeResultReply(renamed, AFTER), null);
 });

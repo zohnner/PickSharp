@@ -230,5 +230,9 @@ CREATE TABLE IF NOT EXISTS free_edge_posts (
   status TEXT,
   edge_id INTEGER,
   tweet_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Next-morning reply under the post: NULL -> sending -> posted | failed | void.
+  -- Added 2026-09-26 on existing DBs via ALTER TABLE ... ADD COLUMN.
+  result_status TEXT,
+  result_tweet_id TEXT
 );
