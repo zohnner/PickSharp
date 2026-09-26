@@ -12,6 +12,11 @@ const ESPN_PATHS = {
 };
 const ESPN_EXTRA = { americanfootball_ncaaf: '&groups=80&limit=300' };
 
+// From Cloudflare's network ESPN answers 403 unless the User-Agent looks like curl --
+// no UA (a Worker's default), "node", and named-bot UAs were all refused when probed
+// from the edge on 2026-09-26. Every ESPN fetch must send this.
+export const ESPN_FETCH_INIT = { headers: { 'User-Agent': 'curl/8.5.0' } };
+
 // ESPN files games under their US Eastern date, so a 00:15 UTC Friday kickoff is on
 // Thursday's scoreboard.
 export function etDate(isoOrMs) {

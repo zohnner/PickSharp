@@ -15,8 +15,17 @@ export function adminAlertRecipient(env) {
 }
 
 // Never throws: an alert failing must not mask or add to the failure it reports.
-// Returns { sent, reason? } for logging.
+// Returns { sent, reason? }; a failed send is also logged here, since most callers
+// ignore the result and a silently failing alert looks exactly like no failure.
 export async function sendAdminAlert(env, key, subject, lines) {
+  const result = await trySendAdminAlert(env, key, subject, lines);
+  if (!result.sent && result.reason !== 'already alerted today') {
+    console.error(`[alert] "${key}" not sent: ${result.reason}`);
+  }
+  return result;
+}
+
+async function trySendAdminAlert(env, key, subject, lines) {
   try {
     const to = adminAlertRecipient(env);
     if (!env.RESEND_API_KEY || !env.EMAIL_FROM || !to) return { sent: false, reason: 'email not configured' };

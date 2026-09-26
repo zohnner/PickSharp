@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { getUpcomingOdds, resetOddsCacheForTests, fetchSharpComparison, getRemainingCredits, EDGE_SPORTS } from './oddsApi.js';
 
 let calls;
+let inits;
 beforeEach(() => {
   calls = [];
+  inits = [];
   resetOddsCacheForTests();
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     calls.push(String(url));
+    inits.push(init);
     const events = [
       {
         id: String(calls.length),
@@ -55,6 +58,11 @@ test('pick-pipeline odds come from ESPN (free), never the credit-billed Odds API
   assert.ok(calls.some((u) => u.includes('college-football') && u.includes('groups=80')));
   assert.equal(games.length, 3);
   assert.deepEqual(new Set(games.map((g) => g.sport_key)).size, 3);
+});
+
+test('ESPN requests send the curl User-Agent, without which ESPN 403s Cloudflare Workers', async () => {
+  await getUpcomingOdds(env, { nowMs: Date.parse('2026-09-24T13:00:00Z') });
+  for (const init of inits) assert.match(init?.headers?.['User-Agent'] || '', /^curl\//);
 });
 
 test('asks for the Eastern date, so a late-night UTC fetch still gets tonight', async () => {

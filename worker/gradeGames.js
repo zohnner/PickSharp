@@ -1,6 +1,6 @@
 // Fetches final scores from ESPN's public scoreboard for games that have logged edges.
 // Grading itself happens on read (record.js) from these stored scores.
-import { etDate, espnScoreboardUrl, parseEspnScoreboard, findFinal, splitGame } from './grading.js';
+import { etDate, espnScoreboardUrl, parseEspnScoreboard, findFinal, splitGame, ESPN_FETCH_INIT } from './grading.js';
 
 const HOUR = 60 * 60 * 1000;
 // A game is worth checking 4h after kickoff (overtime included), and given up on after
@@ -24,7 +24,7 @@ const toSqlIso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 export async function runGrading(env, nowMs = Date.now(), deps = {}) {
   const fetchJson = deps.fetchJson || (async (url) => {
-    const res = await fetch(url);
+    const res = await fetch(url, ESPN_FETCH_INIT);
     if (!res.ok) throw new Error(`ESPN ${res.status}`);
     return res.json();
   });

@@ -1,5 +1,5 @@
 import { toFeedIso } from './edgeSchedule.js';
-import { etDate, espnScoreboardUrl } from './grading.js';
+import { etDate, espnScoreboardUrl, ESPN_FETCH_INIT } from './grading.js';
 import { parseEspnOdds } from './espnOdds.js';
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
@@ -37,7 +37,7 @@ export function resetOddsCacheForTests() {
 // left entirely to the edge engine. Only the current Eastern date is fetched: the slate
 // is "tonight", and each extra college scoreboard costs real CPU on the free plan.
 async function fetchSportOdds(env, sportKey, nowMs) {
-  const res = await fetch(espnScoreboardUrl(sportKey, etDate(nowMs)));
+  const res = await fetch(espnScoreboardUrl(sportKey, etDate(nowMs)), ESPN_FETCH_INIT);
   if (!res.ok) throw new Error(`ESPN scoreboard request failed for ${sportKey}: ${res.status}`);
   return parseEspnOdds(await res.json(), sportKey);
 }
