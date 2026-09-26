@@ -1,5 +1,6 @@
 // Daily free-pick email via Resend (https://resend.com/docs/api-reference/emails/send-batch-emails).
 // Everything here is off until the owner configures it -- see missingEmailConfig.
+import { logUsage } from './usage.js';
 
 const RESEND_BATCH_URL = 'https://api.resend.com/emails/batch';
 const RESEND_BATCH_LIMIT = 100;
@@ -115,8 +116,10 @@ export async function sendToList(env, compose) {
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(batch),
     });
-    if (res.ok) delivered += batch.length;
-    else errors.push(`${res.status} ${await res.text()}`);
+    if (res.ok) {
+      delivered += batch.length;
+      await logUsage(env, 'email', batch.length);
+    } else errors.push(`${res.status} ${await res.text()}`);
   }
   return { recipients: emails.length, delivered, errors };
 }
@@ -134,6 +137,7 @@ export async function sendTestEmail(env, to, pick) {
     body: JSON.stringify([message]),
   });
   if (!res.ok) return { sent: false, reason: `Resend ${res.status}: ${await res.text()}` };
+  await logUsage(env, 'email');
   return { sent: true, to };
 }
 

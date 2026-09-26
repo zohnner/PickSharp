@@ -1,5 +1,6 @@
 // Owner alerts: a plain email to the first ADMIN_EMAILS address when an automated job
 // fails, so a broken slot is noticed the same day instead of whenever someone looks.
+import { logUsage } from './usage.js';
 
 // Outcomes that are the pipeline working as designed, not failures worth an email.
 const EXPECTED_POST_REASONS = [/^Already posted/, /^Posting is paused/];
@@ -50,6 +51,7 @@ async function trySendAdminAlert(env, key, subject, lines) {
         .run();
       return { sent: false, reason: `Resend ${res.status}: ${await res.text()}` };
     }
+    await logUsage(env, 'email');
     return { sent: true };
   } catch (err) {
     return { sent: false, reason: err.message };

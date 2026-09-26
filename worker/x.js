@@ -1,3 +1,4 @@
+import { logUsage } from './usage.js';
 const X_API_BASE = 'https://api.x.com/2';
 
 function percentEncode(str) {
@@ -79,5 +80,7 @@ export async function postTweet(env, text) {
   if (!res.ok) {
     throw new Error(data.detail || data.title || `X API request failed: ${res.status}`);
   }
+  // Every post goes through here, so this is the one place X's monthly post cap is counted.
+  await logUsage(env, 'x_post');
   return data.data.id;
 }

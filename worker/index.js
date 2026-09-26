@@ -26,7 +26,8 @@ import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession, verifyStripeSignature, stripeMode, paidSessionPickIds } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
-import { getUpcomingOdds, getEventProps } from './oddsApi.js';
+import { getUpcomingOdds, getEventProps, getRemainingCredits } from './oddsApi.js';
+import { loadUsage, usageWarnings } from './usage.js';
 import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
 import { discoverCandidatesForHandle } from './xaiDiscovery.js';
 import { computeConfidenceFromOdds } from './tiering.js';
@@ -992,6 +993,23 @@ async function runProofCheck(env, nowMs) {
   }
 }
 
+// Never throws. Once a day, emails the owner if any API is at 80%+ of its free limit.
+async function runUsageCheck(env, nowMs) {
+  try {
+    const rows = await loadUsage(env, nowMs, getRemainingCredits);
+    console.log('[usage]', JSON.stringify(rows.map((r) => [r.key, r.used, r.limit])));
+    const warnings = usageWarnings(rows);
+    if (warnings.length === 0) return;
+    await sendAdminAlert(env, 'usage', 'an API is close to its free limit', [
+      ...warnings,
+      '',
+      'Past the limit, that service stops (posts, emails or edge scans fail) until it resets.',
+    ]);
+  } catch (err) {
+    console.error('[usage] check failed:', err.message);
+  }
+}
+
 // Never throws. Posts yesterday's settled edges to X at most once per reported date.
 async function runDailyResults(env, nowMs = Date.now()) {
   try {
@@ -1448,6 +1466,10 @@ export default {
       if (pathname === '/api/admin/funnel' && request.method === 'GET') {
         return await handleAdminFunnel(request, env);
       }
+      if (pathname === '/api/admin/usage' && request.method === 'GET') {
+        if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+        return json({ services: await loadUsage(env, Date.now(), getRemainingCredits) });
+      }
       if (pathname === '/api/admin/pipeline-status' && request.method === 'GET') {
         return await handleAdminPipelineStatus(request, env);
       }
@@ -1558,6 +1580,7 @@ export default {
             .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
             // After this tick's grading, so a game graded at 10:56 isn't reported as a gap.
             .then(() => isProofCheckTick(event.scheduledTime) && runProofCheck(env, event.scheduledTime))
+            .then(() => isProofCheckTick(event.scheduledTime) && runUsageCheck(env, event.scheduledTime))
         );
       }
     }

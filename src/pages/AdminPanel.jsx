@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -50,6 +50,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [verifyError, setVerifyError] = useState(null);
   const [funnel, setFunnel] = useState(null);
   const [testEmailStatus, setTestEmailStatus] = useState(null);
+  const [usage, setUsage] = useState(null);
   const [gradeStatus, setGradeStatus] = useState(null);
   const [recapStatus, setRecapStatus] = useState(null);
   const [recapTweet, setRecapTweet] = useState(null);
@@ -79,6 +80,11 @@ export default function AdminPanel({ session, loadingSession }) {
       loadPicks();
       getFunnel()
         .then(setFunnel)
+        .catch(() => {
+          // Non-critical: the rest of the admin panel still works without it.
+        });
+      getUsage()
+        .then((data) => setUsage(data.services || []))
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
@@ -494,6 +500,33 @@ export default function AdminPanel({ session, loadingSession }) {
               Send test email to me
             </button>
             {testEmailStatus && <span className="text-xs text-neutral-400">{testEmailStatus}</span>}
+          </div>
+        </div>
+      )}
+
+      {usage && (
+        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <h2 className="text-sm font-semibold text-white">API usage vs free limits</h2>
+          <p className="mt-1 text-xs text-neutral-500">You get an email when anything passes 80%.</p>
+          <div className="mt-3 space-y-3">
+            {usage.map((s) => {
+              const fmt = (n) => (s.unit === '$' ? `$${n.toFixed(2)}` : Math.round(n).toLocaleString());
+              const pct = s.share == null ? null : Math.min(100, Math.round(s.share * 100));
+              const bar = pct == null ? 'bg-neutral-700' : pct >= 80 ? 'bg-red-500' : pct >= 50 ? 'bg-amber-500' : 'bg-green-600';
+              return (
+                <div key={s.key}>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-neutral-300">{s.label}</span>
+                    <span className="text-neutral-400">
+                      {s.used == null ? 'unknown' : `${fmt(s.used)} / ${fmt(s.limit)}`} · {s.period}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded bg-neutral-800">
+                    <div className={`h-1.5 rounded ${bar}`} style={{ width: `${pct ?? 0}%` }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

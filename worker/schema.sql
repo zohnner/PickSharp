@@ -211,3 +211,14 @@ CREATE TABLE IF NOT EXISTS daily_results_posts (
   tweet_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per rate-limited API action (x_post, email), counted against free-plan limits
+-- by usage.js. Odds API credits and xAI spend are tracked elsewhere (edge_scans header
+-- balance, xai_spend_log).
+CREATE TABLE IF NOT EXISTS api_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service TEXT NOT NULL,
+  units INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS api_usage_service_time ON api_usage (service, created_at);
