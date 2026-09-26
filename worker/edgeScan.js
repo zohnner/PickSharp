@@ -1,6 +1,6 @@
 // Edge logger orchestration: schedule check -> free balance check -> paid odds fetch ->
 // D1 writes. All math and timing rules live in pure modules; this file only does I/O.
-import { findEdges, closingUpdates, edgeKey } from './edges.js';
+import { findEdges, closingUpdates, edgeKey, pinnacleCloses, closeForEdge } from './edges.js';
 import {
   isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, toFeedIso,
   effectiveReserve, parseReserve, parsePositiveInt,
@@ -99,22 +99,26 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
     // the write cap below keeps the ones about to kick off rather than an arbitrary slice.
     const { results: openEdges } = await db
       .prepare(
-        `SELECT id, event_id, market, outcome, point, book FROM edges WHERE commence_time > ?
+        `SELECT id, event_id, sport, market, outcome, point, book FROM edges WHERE commence_time > ?
          ORDER BY commence_time ASC`
       )
       .bind(toFeedIso(scheduledMs))
       .all();
+    // The fair price comes from Pinnacle at its current line (adjusted back to the logged
+    // point if the line moved -- see closeForEdge); the book's own price is informational
+    // and null when it no longer offers the logged number.
     const latest = new Map(closingUpdates(events, scheduledMs).map((c) => [edgeKey(c), c]));
+    const pinCloses = pinnacleCloses(events, scheduledMs);
     for (const row of openEdges) {
-      const c = latest.get(edgeKey(row));
+      const c = closeForEdge(row, pinCloses);
       if (!c) continue;
       closes.push(
         db
           .prepare(
             `UPDATE edges SET close_price = ?, close_fair_prob = ?, close_updated_at = datetime('now'),
-               commence_time = ? WHERE id = ?`
+               commence_time = ?, close_point = ? WHERE id = ?`
           )
-          .bind(c.price, c.fair_prob, c.commence_time, row.id)
+          .bind(latest.get(edgeKey(row))?.price ?? null, c.fair_prob, c.commence_time, c.point, row.id)
       );
     }
     if (closes.length > MAX_WRITES_PER_KIND) {

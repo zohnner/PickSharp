@@ -235,3 +235,28 @@ test('all sport fetches failing records a skipped scan and writes no edges', asy
   assert.equal(r.reason, 'fetch failed');
   assert.equal(db.log.filter((s) => s.sql.includes('INSERT INTO edges ')).length, 0);
 });
+
+test('a spread that moved off the logged number still gets a close, from Pinnacle, adjusted and flagged by close_point', async () => {
+  const tick = Date.parse('2026-09-25T00:01:00Z');
+  const moved = {
+    ...evt,
+    bookmakers: [
+      { key: 'pinnacle', markets: [{ key: 'spreads', outcomes: [
+        { name: 'Green Bay Packers', price: 1.91, point: -6.5 }, { name: 'Atlanta Falcons', price: 1.91, point: 6.5 },
+      ] }] },
+      { key: 'betmgm', markets: [{ key: 'spreads', outcomes: [{ name: 'Green Bay Packers', price: 1.91, point: -6.5 }] }] },
+    ],
+  };
+  const db = fakeDb({
+    'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl' }],
+    'FROM edges WHERE commence_time >': [
+      { id: 9, event_id: 'evt1', sport: 'americanfootball_nfl', market: 'spreads', outcome: 'Green Bay Packers', point: -4.5, book: 'betmgm' },
+    ],
+  });
+  await runEdgeScan({ DB: db }, tick, { ...deps(400), fetchSharpComparison: async () => [moved] });
+  const [close] = db.log.filter((s) => s.sql.includes('SET close_price'));
+  assert.equal(close.args[0], null); // betmgm no longer offers -4.5
+  assert.ok(close.args[1] > 0.5); // -4.5 is worth more than the -6.5 close
+  assert.equal(close.args[3], -6.5); // close_point
+  assert.equal(close.args.at(-1), 9);
+});

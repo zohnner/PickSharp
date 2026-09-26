@@ -116,7 +116,11 @@ CREATE TABLE IF NOT EXISTS edges (
   last_edge_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
   close_price REAL,
   close_fair_prob REAL,
-  close_updated_at TEXT
+  close_updated_at TEXT,
+  -- Pinnacle's closing line. When it differs from point, close_fair_prob was adjusted
+  -- back to the logged point (edges.js closeForEdge) and the CLV is an estimate.
+  -- Added 2026-09-26 on existing DBs: ALTER TABLE edges ADD COLUMN close_point REAL;
+  close_point REAL
 );
 
 -- NULLs are distinct in SQLite UNIQUE constraints, so h2h rows dedupe via a sentinel.

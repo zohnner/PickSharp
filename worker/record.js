@@ -101,6 +101,8 @@ export function buildRecord(rows, nowMs) {
         odds: americanOdds(r.first_price),
         ev: r.first_ev,
         clv: isValidClose(r, nowMs) ? r.first_price * r.close_fair_prob - 1 : null,
+        // The line moved, so the close was adjusted back to our number (edges.js closeForEdge).
+        clvEstimated: isValidClose(r, nowMs) && r.close_point != null && r.close_point !== r.point,
         grade,
         units: settled ? unitsFor(grade, r.first_price) : null,
         score: r.result_status === 'final' ? `${r.away_score}-${r.home_score}` : null,

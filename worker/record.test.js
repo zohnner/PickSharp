@@ -101,3 +101,14 @@ test('summary splits spreads/totals, short moneylines and +200-or-longer moneyli
   assert.equal(seg(summary.segments.bar, 'ml_long').edges, 1);
   assert.ok(seg(summary.segments.all, 'ml_long').label.includes('+200'));
 });
+
+test('a close taken at a moved line is flagged as an estimate; same-line and moneyline closes are not', () => {
+  const close = { close_fair_prob: 0.55, close_updated_at: '2026-09-25 00:05:00' };
+  const moved = edge({ event_id: 'm', market: 'spreads', point: -4.5, close_point: -6.5, ...close });
+  const same = edge({ event_id: 's', market: 'spreads', point: -4.5, close_point: -4.5, ...close });
+  const ml = edge({ event_id: 'ml', close_point: null, ...close });
+  const byEvent = Object.fromEntries(buildRecord([moved, same, ml], NOW).edges.map((e) => [e.id, e]));
+  assert.equal(byEvent[moved.id].clvEstimated, true);
+  assert.equal(byEvent[same.id].clvEstimated, false);
+  assert.equal(byEvent[ml.id].clvEstimated, false);
+});

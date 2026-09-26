@@ -142,7 +142,16 @@ export default function Record() {
                 {odds(e.odds)} <span className="text-neutral-600">@ {e.book}</span>
               </span>
               <span title="Edge when found">Edge {pct(e.ev)}</span>
-              <span title="Closing line value">CLV {pct(e.clv)}</span>
+              <span
+                title={
+                  e.clvEstimated
+                    ? 'Closing line value, estimated: the line moved off our number, so the closing fair price was adjusted back to it'
+                    : 'Closing line value'
+                }
+              >
+                CLV {pct(e.clv)}
+                {e.clvEstimated && <span className="text-neutral-500"> est.</span>}
+              </span>
               <span className={`w-16 rounded px-2 py-0.5 text-center font-semibold capitalize ${GRADE_STYLES[e.grade]}`}>
                 {e.grade}
               </span>
