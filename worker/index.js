@@ -37,7 +37,15 @@ import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
 import { isPostFailure, sendAdminAlert } from './alerts.js';
-import { isRecapTick, buildWeeklyRecap, composeRecapTweet, composeRecapEmail } from './recap.js';
+import {
+  isRecapTick,
+  buildWeeklyRecap,
+  composeRecapTweet,
+  composeRecapEmail,
+  isDailyResultsTick,
+  buildDailyResults,
+  composeDailyResultsTweet,
+} from './recap.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -984,6 +992,39 @@ async function runProofCheck(env, nowMs) {
   }
 }
 
+// Never throws. Posts yesterday's settled edges to X at most once per reported date.
+async function runDailyResults(env, nowMs = Date.now()) {
+  try {
+    const results = buildDailyResults(await loadRecord(env, nowMs), nowMs);
+    if (!results) return { ran: false, reason: 'no publish-bar edges settled yesterday' };
+    if (env.POSTING_PAUSED === 'true') return { ran: false, reason: 'posting paused' };
+
+    await env.DB.prepare('INSERT OR IGNORE INTO daily_results_posts (date) VALUES (?)').bind(results.date).run();
+    const claim = await env.DB.prepare(
+      `UPDATE daily_results_posts SET status = 'sending' WHERE date = ? AND status IS NULL`
+    )
+      .bind(results.date)
+      .run();
+    if (claim.meta.changes !== 1) return { ran: false, reason: 'already posted' };
+
+    try {
+      const tweetId = await postTweet(env, composeDailyResultsTweet(results, env.PUBLIC_SITE_URL));
+      await env.DB.prepare(`UPDATE daily_results_posts SET status = 'posted', tweet_id = ? WHERE date = ?`)
+        .bind(tweetId, results.date)
+        .run();
+      return { ran: true, date: results.date, tweet: tweetId };
+    } catch (err) {
+      await env.DB.prepare('UPDATE daily_results_posts SET status = NULL WHERE date = ?').bind(results.date).run();
+      await sendAdminAlert(env, 'daily-results', 'daily results tweet failed', [
+        `Results for ${results.label} did not post to X: ${err.message}`,
+      ]);
+      return { ran: false, reason: `failed: ${err.message}` };
+    }
+  } catch (err) {
+    return { ran: false, reason: err.message };
+  }
+}
+
 // Never throws. Posts last week's recap to X and emails it to the list, each at most once.
 async function runWeeklyRecap(env, nowMs = Date.now()) {
   try {
@@ -1494,6 +1535,9 @@ export default {
           console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
         )
       );
+      if (isDailyResultsTick(event.scheduledTime)) {
+        ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
+      }
       if (isRecapTick(event.scheduledTime)) {
         ctx.waitUntil(runWeeklyRecap(env, event.scheduledTime).then((r) => console.log('[recap]', JSON.stringify(r))));
       }

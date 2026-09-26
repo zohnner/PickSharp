@@ -202,3 +202,12 @@ CREATE TABLE IF NOT EXISTS weekly_recaps (
   email_recipients INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per daily results tweet (date = the Eastern date being reported, YYYYMMDD).
+-- status NULL -> sending -> posted; a failed post resets it to NULL so a retry can claim it.
+CREATE TABLE IF NOT EXISTS daily_results_posts (
+  date TEXT PRIMARY KEY,
+  status TEXT,
+  tweet_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

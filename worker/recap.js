@@ -107,3 +107,49 @@ export function composeRecapEmail(recap, { siteUrl, unsubscribeLink, postalAddre
 </div></body></html>`;
   return { subject, text, html };
 }
+
+// ---- Daily results: yesterday's settled edges, posted to X every morning ----
+// Same buildRecord source as /record and the weekly recap. Losing days post too.
+
+// 13:31 UTC (9:31 AM ET): after the 08:00-11:00 UTC grading runs and the 10:56 proof check.
+export function isDailyResultsTick(ms) {
+  const d = new Date(ms);
+  return d.getUTCHours() === 13 && d.getUTCMinutes() === 31;
+}
+
+const SETTLED = new Set(['win', 'loss', 'push']);
+
+// Returns null when no publish-bar edge from yesterday (Eastern) has settled.
+export function buildDailyResults(record, nowMs) {
+  const date = etDate(nowMs - DAY_MS);
+  const barEdges = record.edges.filter((e) => e.ev >= record.publishBar);
+  const entries = barEdges.filter((e) => SETTLED.has(e.grade) && etDate(e.commence_time) === date);
+  if (entries.length === 0) return null;
+  return { date, label: shortDate(date), barPct: Math.round(record.publishBar * 100), entries, day: stats(entries), season: stats(barEdges) };
+}
+
+// X weighs most emoji and CJK as 2 characters; count anything past U+10FF as 2 to stay
+// under the limit (URLs are billed as 23, which this overcounts -- safe direction).
+const xLength = (s) => [...s].reduce((n, ch) => n + (ch.codePointAt(0) > 0x10ff ? 2 : 1), 0);
+const TWEET_LIMIT = 280;
+const ICONS = { win: '✅', loss: '❌', push: '➖' };
+const fmtOdds = (o) => (o == null ? '' : ` (${o > 0 ? '+' : ''}${o})`);
+
+export function composeDailyResultsTweet(results, siteUrl) {
+  const head = [`📈 PickSharp ${results.barPct}%+ edges, ${results.label}`, ''];
+  const tail = [
+    '',
+    `Day: ${recordLine(results.day)}, ${signed(results.day.units, 2)}u · Season: ${recordLine(results.season)}, ${signed(results.season.units, 2)}u`,
+    `Every edge, wins and losses 👉 ${siteUrl}/record?ref=x_daily`,
+  ];
+  const lines = results.entries.map(
+    (e) =>
+      `${ICONS[e.grade]} ${e.selection}${fmtOdds(e.odds)}` +
+      (e.clv == null ? '' : ` · CLV ${signed(e.clv * 100, 1)}%${e.clvEstimated ? ' est.' : ''}`)
+  );
+  const fits = (body) => xLength([...head, ...body, ...tail].join('\n')) <= TWEET_LIMIT;
+  let shown = lines.length;
+  while (shown > 0 && !fits([...lines.slice(0, shown), ...(shown < lines.length ? [`+${lines.length - shown} more`] : [])])) shown--;
+  const body = [...lines.slice(0, shown), ...(shown < lines.length ? [`+${lines.length - shown} more`] : [])];
+  return [...head, ...body, ...tail].join('\n');
+}
