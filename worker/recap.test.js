@@ -106,17 +106,19 @@ test('tweet lists each edge with its result and CLV, the day and season lines, a
     record([graded(), graded({ grade: 'loss', units: -1, selection: 'Over 52.5', odds: -105, clv: 0.012, clvEstimated: true })]),
     SAT
   );
-  const tweet = composeDailyResultsTweet(res, 'https://wepicksharp.com');
+  const tweet = composeDailyResultsTweet(res);
   assert.match(tweet, /Sep 26/);
   assert.match(tweet, /✅ Tennessee Volunteers \+5\.5 \(-105\) · CLV \+2\.1%/);
   assert.match(tweet, /❌ Over 52\.5 \(-105\) · CLV \+1\.2% est\./);
   assert.match(tweet, /1-1, -0\.05u/);
-  assert.match(tweet, /wepicksharp\.com\/record\?ref=x_daily/);
+  // No link: X bills a link post at $0.20 vs $0.015. The bio carries /record.
+  assert.doesNotMatch(tweet, /https?:\/\/|\.com/);
+  assert.match(tweet, /link in bio/);
 });
 
 test('a busy day is truncated to fit a tweet with a "+N more" line', () => {
   const many = Array.from({ length: 20 }, (_, i) => graded({ selection: `Some Long Team Name Number ${i} +3.5` }));
-  const tweet = composeDailyResultsTweet(buildDailyResults(record(many), SAT), 'https://wepicksharp.com');
+  const tweet = composeDailyResultsTweet(buildDailyResults(record(many), SAT));
   assert.ok(tweet.length <= 280, `length ${tweet.length}`);
   assert.match(tweet, /\+\d+ more/);
   assert.match(tweet, /20-0/);

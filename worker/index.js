@@ -514,7 +514,7 @@ async function handleDailyPostCheck(env) {
   const liveTodays = picks.filter((p) => !isStale(p));
   const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const freePick = picks.find((p) => p.id === freeId);
-  const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
+  const tweetText = composeTweet(freePick);
 
   let tweetId;
   try {
@@ -667,7 +667,7 @@ async function postSlot(env, slot) {
   const liveTodays = picks.filter((p) => !isStale(p));
   const freeId = freePickId(liveTodays.length > 0 ? liveTodays : picks);
   const freePick = picks.find((p) => p.id === freeId);
-  const tweetText = composeTweet(freePick, env.PUBLIC_SITE_URL);
+  const tweetText = composeTweet(freePick);
 
   let tweetId;
   try {
@@ -1067,7 +1067,7 @@ async function runDailyResults(env, nowMs = Date.now()) {
     if (claim.meta.changes !== 1) return { ran: false, reason: 'already posted' };
 
     try {
-      const tweetId = await postTweet(env, composeDailyResultsTweet(results, env.PUBLIC_SITE_URL));
+      const tweetId = await postTweet(env, composeDailyResultsTweet(results));
       await env.DB.prepare(`UPDATE daily_results_posts SET status = 'posted', tweet_id = ? WHERE date = ?`)
         .bind(tweetId, results.date)
         .run();

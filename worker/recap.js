@@ -132,12 +132,13 @@ export function buildDailyResults(record, nowMs) {
 const ICONS = { win: '✅', loss: '❌', push: '➖' };
 const fmtOdds = (o) => (o == null ? '' : ` (${o > 0 ? '+' : ''}${o})`);
 
-export function composeDailyResultsTweet(results, siteUrl) {
+export function composeDailyResultsTweet(results) {
   const head = [`📈 PickSharp ${results.barPct}%+ edges, ${results.label}`, ''];
   const tail = [
     '',
     `Day: ${recordLine(results.day)}, ${signed(results.day.units, 2)}u · Season: ${recordLine(results.season)}, ${signed(results.season.units, 2)}u`,
-    `Every edge, wins and losses 👉 ${siteUrl}/record?ref=x_daily`,
+    // No URL: a link post costs $0.20 on X's pay-per-use API vs $0.015. The bio links /record.
+    'Every edge, wins and losses: link in bio 👆',
   ];
   const lines = results.entries.map(
     (e) =>
