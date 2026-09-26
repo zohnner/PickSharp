@@ -38,6 +38,7 @@ export default function Record() {
 
   const bar = record?.publishBar ?? 0.02;
   const summary = record && (showAll ? record.summary.all : record.summary.bar);
+  const segments = record?.summary.segments?.[showAll ? 'all' : 'bar'];
   const edges = record ? record.edges.filter((e) => showAll || e.ev >= bar) : [];
 
   return (
@@ -84,6 +85,38 @@ export default function Record() {
             value={pct(summary.clv.avg, 2)}
             sub={summary.clv.count ? `${pct(summary.clv.positiveShare, 0).replace('+', '')} beat the close` : 'no closes yet'}
           />
+        </div>
+      )}
+
+      {segments && summary.edges > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-800">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-neutral-500">
+                <th className="p-3 font-medium">By bet type</th>
+                <th className="p-3 font-medium">Record</th>
+                <th className="p-3 font-medium">Units</th>
+                <th className="p-3 font-medium">Avg CLV</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-800">
+              {segments.map((s) => (
+                <tr key={s.key} className="text-neutral-300">
+                  <td className="p-3">{s.label}</td>
+                  <td className="p-3">{s.edges ? `${s.wins}-${s.losses}${s.pushes ? `-${s.pushes}` : ''}` : '—'}</td>
+                  <td className="p-3">{s.edges ? units(s.units) : '—'}</td>
+                  <td className="p-3">
+                    {pct(s.clv.avg, 2)}
+                    {s.clv.count ? <span className="text-neutral-500"> ({s.clv.count})</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="border-t border-neutral-800 p-3 text-xs text-neutral-500">
+            Big underdogs are where fair prices are hardest to pin down, so we report them separately — a lucky
+            run on longshots shouldn't be mistaken for an edge.
+          </p>
         </div>
       )}
 

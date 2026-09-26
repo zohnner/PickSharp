@@ -83,3 +83,21 @@ test('a close written long before kickoff does not count as CLV', () => {
   const rec = buildRecord([edge({ close_fair_prob: 0.5, close_updated_at: '2026-09-24 12:00:00' })], NOW);
   assert.equal(rec.edges[0].clv, null);
 });
+
+test('summary splits spreads/totals, short moneylines and +200-or-longer moneylines', () => {
+  const rows = [
+    edge({ event_id: 'a', market: 'spreads', outcome: 'Green Bay Packers', point: -3.5, first_price: 1.95 }),
+    edge({ event_id: 'b', first_price: 2.5 }),
+    edge({ event_id: 'c', outcome: 'Atlanta Falcons', first_price: 3.0 }),
+    edge({ event_id: 'd', outcome: 'Atlanta Falcons', first_price: 8.0, first_ev: 0.01 }),
+  ];
+  const { summary } = buildRecord(rows, NOW);
+  const seg = (list, key) => list.find((s) => s.key === key);
+  assert.deepEqual(summary.segments.all.map((s) => s.key), ['spreads_totals', 'ml_short', 'ml_long']);
+  assert.equal(seg(summary.segments.all, 'spreads_totals').edges, 1);
+  assert.equal(seg(summary.segments.all, 'ml_short').edges, 1);
+  assert.equal(seg(summary.segments.all, 'ml_long').edges, 2);
+  // The publish-bar view only counts edges at or above the bar.
+  assert.equal(seg(summary.segments.bar, 'ml_long').edges, 1);
+  assert.ok(seg(summary.segments.all, 'ml_long').label.includes('+200'));
+});

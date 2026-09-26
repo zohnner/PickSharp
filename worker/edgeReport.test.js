@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeEdges } from './edgeReport.js';
+import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
 const row = (o) => ({
@@ -100,4 +100,45 @@ test('empty input gives nulls, not NaN', () => {
   assert.equal(summary.clv.noClose, 0);
   assert.equal(summary.medianLifetimeMinutes, null);
   assert.deepEqual(recent, []);
+});
+
+// Proof-health check: rows are edges LEFT JOIN game_results (result_status, graded_at).
+const CHECK = Date.parse('2026-09-26T10:56:00Z');
+const gap = (o) => ({
+  event_id: 'e1', game: 'Atlanta Falcons @ Green Bay Packers',
+  commence_time: '2026-09-25T00:15:00Z', close_fair_prob: 0.5,
+  close_updated_at: '2026-09-25 00:03:00', result_status: 'final', graded_at: '2026-09-25 08:01:00',
+  ...o,
+});
+
+test('a graded game with a valid close has no gaps', () => {
+  assert.deepEqual(findProofGaps([gap()], CHECK), { ungraded: [], unmatched: [], missingClose: [] });
+});
+
+test('flags a game still ungraded 5h+ after kickoff, once per game', () => {
+  const rows = [gap({ result_status: null }), gap({ result_status: null })];
+  assert.deepEqual(findProofGaps(rows, CHECK).ungraded, ['Atlanta Falcons @ Green Bay Packers']);
+  // A late kickoff the grader can't have reached yet is not a gap.
+  const late = gap({ result_status: null, commence_time: '2026-09-26T07:00:00Z', close_updated_at: '2026-09-26 06:50:00' });
+  assert.deepEqual(findProofGaps([late], CHECK).ungraded, []);
+});
+
+test('flags games the grader gave up on in the last day, since they drop out of the record', () => {
+  const fresh = gap({ result_status: 'unmatched', graded_at: '2026-09-26 08:01:00' });
+  const old = gap({ event_id: 'e2', game: 'Old @ Game', result_status: 'unmatched', graded_at: '2026-09-24 08:01:00' });
+  assert.deepEqual(findProofGaps([fresh, old], CHECK).unmatched, ['Atlanta Falcons @ Green Bay Packers']);
+});
+
+test('flags a game from the last 24h whose edges have no valid close', () => {
+  const kickoff = '2026-09-26T00:00:00Z';
+  const none = gap({ commence_time: kickoff, close_fair_prob: null, close_updated_at: null });
+  const stale = gap({ event_id: 'e2', game: 'Early @ Close', commence_time: kickoff, close_updated_at: '2026-09-25 16:00:00' });
+  const older = gap({ event_id: 'e3', game: 'Two @ Days', close_fair_prob: null, commence_time: '2026-09-24T20:00:00Z' });
+  assert.deepEqual(findProofGaps([none, stale, older], CHECK).missingClose, ['Atlanta Falcons @ Green Bay Packers', 'Early @ Close']);
+});
+
+test('the proof check runs once a day, on the last grading tick', () => {
+  assert.equal(isProofCheckTick(CHECK), true);
+  assert.equal(isProofCheckTick(Date.parse('2026-09-26T10:51:00Z')), false);
+  assert.equal(isProofCheckTick(Date.parse('2026-09-26T22:56:00Z')), false);
 });

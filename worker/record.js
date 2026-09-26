@@ -70,6 +70,17 @@ export function stats(entries) {
   };
 }
 
+// Longshot moneylines are where margin removal is least reliable (favorite-longshot
+// bias), and a few big-priced wins can carry the whole record. Reporting them apart
+// keeps a hot streak there from passing for proof that the edges are real.
+const SEGMENTS = [
+  { key: 'spreads_totals', label: 'Spreads & totals', test: (e) => e.market !== 'h2h' },
+  { key: 'ml_short', label: 'Moneylines shorter than +200', test: (e) => e.market === 'h2h' && e.odds < 200 },
+  { key: 'ml_long', label: 'Moneylines +200 or longer', test: (e) => e.market === 'h2h' && e.odds >= 200 },
+];
+const segmentStats = (entries) =>
+  SEGMENTS.map(({ key, label, test }) => ({ key, label, ...stats(entries.filter(test)) }));
+
 // rows: edges LEFT JOIN game_results (home_team, away_team, home_score, away_score, result_status).
 export function buildRecord(rows, nowMs) {
   const past = rows.filter((r) => Date.parse(r.commence_time) <= nowMs);
@@ -84,6 +95,7 @@ export function buildRecord(rows, nowMs) {
         sport: r.sport,
         game: r.game,
         commence_time: r.commence_time,
+        market: r.market,
         selection: selectionLabel(r),
         book: BOOK_NAMES[r.book] || r.book,
         odds: americanOdds(r.first_price),
@@ -96,11 +108,13 @@ export function buildRecord(rows, nowMs) {
     })
     .sort((a, b) => Date.parse(b.commence_time) - Date.parse(a.commence_time) || b.ev - a.ev);
 
+  const barEntries = entries.filter((e) => e.ev >= PUBLISH_BAR_EV);
   return {
     publishBar: PUBLISH_BAR_EV,
     summary: {
-      bar: stats(entries.filter((e) => e.ev >= PUBLISH_BAR_EV)),
+      bar: stats(barEntries),
       all: stats(entries),
+      segments: { bar: segmentStats(barEntries), all: segmentStats(entries) },
     },
     edges: entries,
   };

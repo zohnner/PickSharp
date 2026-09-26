@@ -33,7 +33,7 @@ import { computeConfidenceFromOdds } from './tiering.js';
 import { generatePicks, generatePropPicks } from './pickGenerator.js';
 import { dropConflictingPicks } from './pickConflicts.js';
 import { runEdgeScan } from './edgeScan.js';
-import { summarizeEdges } from './edgeReport.js';
+import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
 import { isPostFailure, sendAdminAlert } from './alerts.js';
@@ -954,6 +954,36 @@ async function claimRecapChannel(env, weekStart, column) {
   return r.meta.changes === 1;
 }
 
+// Never throws. Emails the owner when the track record has holes: games ungraded after
+// the morning's grading runs, games the grader gave up on, or edges that never got a close.
+async function runProofCheck(env, nowMs) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT e.event_id, e.game, e.commence_time, e.close_fair_prob, e.close_updated_at,
+              g.status AS result_status, g.graded_at
+       FROM edges e LEFT JOIN game_results g ON g.event_id = e.event_id
+       WHERE e.commence_time >= ? AND e.commence_time <= ?`
+    )
+      .bind(
+        new Date(nowMs - 10 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        new Date(nowMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      )
+      .all();
+    const gaps = findProofGaps(results, nowMs);
+    const total = gaps.ungraded.length + gaps.unmatched.length + gaps.missingClose.length;
+    console.log('[proof-check]', JSON.stringify(gaps));
+    if (total === 0) return;
+    const section = (title, games) => (games.length ? [title, ...games.map((g) => `  - ${g}`), ''] : []);
+    await sendAdminAlert(env, 'proof-gaps', `${total} gap(s) in the edge track record`, [
+      ...section("Still ungraded after this morning's grading runs (retried daily until 48h, then voided):", gaps.ungraded),
+      ...section('ESPN had no matching final, so these were voided and left out of the record:', gaps.unmatched),
+      ...section('Kicked off in the last 24h with no valid closing line, so no CLV:', gaps.missingClose),
+    ]);
+  } catch (err) {
+    console.error('[proof-check] failed:', err.message);
+  }
+}
+
 // Never throws. Posts last week's recap to X and emails it to the list, each at most once.
 async function runWeeklyRecap(env, nowMs = Date.now()) {
   try {
@@ -1482,6 +1512,8 @@ export default {
               }
             })
             .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
+            // After this tick's grading, so a game graded at 10:56 isn't reported as a gap.
+            .then(() => isProofCheckTick(event.scheduledTime) && runProofCheck(env, event.scheduledTime))
         );
       }
     }
