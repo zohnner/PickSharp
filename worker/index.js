@@ -28,6 +28,8 @@ import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds, getEventProps, getRemainingCredits } from './oddsApi.js';
 import { loadUsage, usageWarnings } from './usage.js';
+import { isFreeEdgeTick, selectFreeEdge, composeFreeEdgeTweet } from './freeEdge.js';
+import { etDate } from './grading.js';
 import { fetchTweet, TweetNotFoundError, fetchTweetMetrics } from './xVerify.js';
 import { discoverCandidatesForHandle } from './xaiDiscovery.js';
 import { computeConfidenceFromOdds } from './tiering.js';
@@ -993,6 +995,45 @@ async function runProofCheck(env, nowMs) {
   }
 }
 
+// Never throws. Posts the day's free edge to X, at most once per Eastern date.
+async function runFreeEdge(env, nowMs) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM edges WHERE first_seen_at >= datetime(?, 'unixepoch', '-1 hour')`
+    )
+      .bind(Math.floor(nowMs / 1000))
+      .all();
+    const edge = selectFreeEdge(results, nowMs);
+    if (!edge) return { ran: false, reason: 'no fresh 2%+ non-longshot edge kicking off in 30m-48h' };
+    if (env.POSTING_PAUSED === 'true') return { ran: false, reason: 'posting paused' };
+
+    const date = etDate(nowMs);
+    await env.DB.prepare('INSERT OR IGNORE INTO free_edge_posts (date) VALUES (?)').bind(date).run();
+    const claim = await env.DB.prepare(
+      `UPDATE free_edge_posts SET status = 'sending', edge_id = ? WHERE date = ? AND status IS NULL`
+    )
+      .bind(edge.id, date)
+      .run();
+    if (claim.meta.changes !== 1) return { ran: false, reason: 'already posted' };
+
+    try {
+      const tweetId = await postTweet(env, composeFreeEdgeTweet(edge, env.PUBLIC_SITE_URL));
+      await env.DB.prepare(`UPDATE free_edge_posts SET status = 'posted', tweet_id = ? WHERE date = ?`)
+        .bind(tweetId, date)
+        .run();
+      return { ran: true, edge_id: edge.id, tweet: tweetId };
+    } catch (err) {
+      await env.DB.prepare('UPDATE free_edge_posts SET status = NULL WHERE date = ?').bind(date).run();
+      await sendAdminAlert(env, 'free-edge', 'free edge tweet failed', [
+        `The free edge (${edge.game}) did not post to X: ${err.message}`,
+      ]);
+      return { ran: false, reason: `failed: ${err.message}` };
+    }
+  } catch (err) {
+    return { ran: false, reason: err.message };
+  }
+}
+
 // Never throws. Once a day, emails the owner if any API is at 80%+ of its free limit.
 async function runUsageCheck(env, nowMs) {
   try {
@@ -1557,6 +1598,9 @@ export default {
           console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
         )
       );
+      if (isFreeEdgeTick(event.scheduledTime)) {
+        ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
+      }
       if (isDailyResultsTick(event.scheduledTime)) {
         ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
       }

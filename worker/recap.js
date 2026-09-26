@@ -3,6 +3,7 @@
 // Every week is posted, winning or losing -- the record is only worth something unedited.
 import { stats } from './record.js';
 import { etDate } from './grading.js';
+import { tweetLength, TWEET_LIMIT } from './x.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -128,10 +129,6 @@ export function buildDailyResults(record, nowMs) {
   return { date, label: shortDate(date), barPct: Math.round(record.publishBar * 100), entries, day: stats(entries), season: stats(barEdges) };
 }
 
-// X weighs most emoji and CJK as 2 characters; count anything past U+10FF as 2 to stay
-// under the limit (URLs are billed as 23, which this overcounts -- safe direction).
-const xLength = (s) => [...s].reduce((n, ch) => n + (ch.codePointAt(0) > 0x10ff ? 2 : 1), 0);
-const TWEET_LIMIT = 280;
 const ICONS = { win: '✅', loss: '❌', push: '➖' };
 const fmtOdds = (o) => (o == null ? '' : ` (${o > 0 ? '+' : ''}${o})`);
 
@@ -147,7 +144,7 @@ export function composeDailyResultsTweet(results, siteUrl) {
       `${ICONS[e.grade]} ${e.selection}${fmtOdds(e.odds)}` +
       (e.clv == null ? '' : ` · CLV ${signed(e.clv * 100, 1)}%${e.clvEstimated ? ' est.' : ''}`)
   );
-  const fits = (body) => xLength([...head, ...body, ...tail].join('\n')) <= TWEET_LIMIT;
+  const fits = (body) => tweetLength([...head, ...body, ...tail].join('\n')) <= TWEET_LIMIT;
   let shown = lines.length;
   while (shown > 0 && !fits([...lines.slice(0, shown), ...(shown < lines.length ? [`+${lines.length - shown} more`] : [])])) shown--;
   const body = [...lines.slice(0, shown), ...(shown < lines.length ? [`+${lines.length - shown} more`] : [])];

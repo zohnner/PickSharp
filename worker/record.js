@@ -7,7 +7,7 @@ import { isValidClose } from './edgeReport.js';
 // The strategy's "would publish" bar; 1-2% edges are logged to see the distribution.
 export const PUBLISH_BAR_EV = 0.02;
 
-const BOOK_NAMES = {
+export const BOOK_NAMES = {
   draftkings: 'DraftKings',
   fanduel: 'FanDuel',
   betmgm: 'BetMGM',
@@ -28,7 +28,7 @@ export function americanOdds(decimal) {
   return decimal >= 2 ? Math.round((decimal - 1) * 100) : -Math.round(100 / (decimal - 1));
 }
 
-function selectionLabel(r) {
+export function selectionLabel(r) {
   const fmtPoint = (p) => (p > 0 ? `+${p}` : `${p}`);
   if (r.market === 'totals') return `${r.outcome} ${r.point}`;
   if (r.market === 'spreads') return `${r.outcome} ${fmtPoint(r.point)}`;

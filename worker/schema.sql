@@ -222,3 +222,13 @@ CREATE TABLE IF NOT EXISTS api_usage (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS api_usage_service_time ON api_usage (service, created_at);
+
+-- One row per daily free edge tweet (date = Eastern date, YYYYMMDD). Same claim pattern
+-- as daily_results_posts: NULL -> sending -> posted, reset to NULL on failure.
+CREATE TABLE IF NOT EXISTS free_edge_posts (
+  date TEXT PRIMARY KEY,
+  status TEXT,
+  edge_id INTEGER,
+  tweet_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

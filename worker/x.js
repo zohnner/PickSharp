@@ -58,6 +58,16 @@ async function buildAuthHeader(env, method, url) {
   );
 }
 
+// Tweet length as X counts it: every link is 23 characters, and most emoji and CJK
+// weigh 2 (approximated as anything past U+10FF). The limit is 280.
+export const TWEET_LIMIT = 280;
+export function tweetLength(text) {
+  return [...text.replace(/https?:\/\/\S+/g, 'x'.repeat(23))].reduce(
+    (n, ch) => n + (ch.codePointAt(0) > 0x10ff ? 2 : 1),
+    0
+  );
+}
+
 export async function postTweet(env, text) {
   const url = `${X_API_BASE}/tweets`;
   const authHeader = await buildAuthHeader(env, 'POST', url);
