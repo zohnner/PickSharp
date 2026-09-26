@@ -2,9 +2,12 @@
 // out on a chart instead of by surprise. X posts and emails are logged here as they
 // happen; Odds API credits come from the balance header and xAI spend from its own log.
 
-// Free-plan limits, overridable in wrangler.toml [vars] if a plan changes.
+// Free-plan limits and budgets, overridable in wrangler.toml [vars] if a plan changes.
 const DEFAULT_LIMITS = {
-  X_MONTHLY_POST_LIMIT: 500,
+  // X API is pay-per-use: no post cap, just a monthly dollar budget we choose.
+  X_MONTHLY_BUDGET_USD: 25,
+  X_PRICE_POST_USD: 0.015,
+  X_PRICE_POST_LINK_USD: 0.2,
   RESEND_MONTHLY_LIMIT: 3000,
   RESEND_DAILY_LIMIT: 100,
   ODDS_API_MONTHLY_CREDITS: 500,
@@ -32,9 +35,12 @@ export function monthStartSql(nowMs) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01 00:00:00`;
 }
 
-// counts: { xPostsMonth, emailsMonth, emailsToday, oddsRemaining (null if unknown), xaiUsd }
+// counts: { xPlainMonth, xLinkMonth, emailsMonth, emailsToday, oddsRemaining (null if unknown), xaiUsd }
 export function summarizeUsage(counts, env) {
   const oddsLimit = limit(env, 'ODDS_API_MONTHLY_CREDITS');
+  // X bills a post with a link at ~13x a plain one (docs.x.com pricing, Sep 2026).
+  const xSpend =
+    counts.xPlainMonth * limit(env, 'X_PRICE_POST_USD') + counts.xLinkMonth * limit(env, 'X_PRICE_POST_LINK_USD');
   const row = (key, label, used, lim, period, unit = '') => ({
     key,
     label,
@@ -45,7 +51,14 @@ export function summarizeUsage(counts, env) {
     share: used == null ? null : used / lim,
   });
   return [
-    row('x_posts', 'X posts', counts.xPostsMonth, limit(env, 'X_MONTHLY_POST_LIMIT'), 'this calendar month'),
+    row(
+      'x_spend',
+      `X API spend (${counts.xPlainMonth + counts.xLinkMonth} posts, ${counts.xLinkMonth} with links)`,
+      xSpend,
+      limit(env, 'X_MONTHLY_BUDGET_USD'),
+      'this calendar month (estimate)',
+      '$'
+    ),
     row('email_month', 'Emails (Resend)', counts.emailsMonth, limit(env, 'RESEND_MONTHLY_LIMIT'), 'this calendar month'),
     row('email_day', 'Emails today (Resend)', counts.emailsToday, limit(env, 'RESEND_DAILY_LIMIT'), 'today (UTC)'),
     row(
@@ -75,12 +88,16 @@ export async function loadUsage(env, nowMs, getRemainingCredits) {
       .then((r) => r?.n ?? 0);
   const today = new Date(nowMs).toISOString().slice(0, 10) + ' 00:00:00';
   const month = monthStartSql(nowMs);
-  const [xPostsMonth, emailsMonth, emailsToday, xai, oddsRemaining] = await Promise.all([
+  const [xPlainMonth, xLinkMonth, emailsMonth, emailsToday, xai, oddsRemaining] = await Promise.all([
     sum('x_post', month),
+    sum('x_post_link', month),
     sum('email', month),
     sum('email', today),
     env.DB.prepare('SELECT COALESCE(SUM(estimated_usd), 0) AS total FROM xai_spend_log').first(),
     getRemainingCredits(env),
   ]);
-  return summarizeUsage({ xPostsMonth, emailsMonth, emailsToday, oddsRemaining, xaiUsd: xai?.total ?? 0 }, env);
+  return summarizeUsage(
+    { xPlainMonth, xLinkMonth, emailsMonth, emailsToday, oddsRemaining, xaiUsd: xai?.total ?? 0 },
+    env
+  );
 }

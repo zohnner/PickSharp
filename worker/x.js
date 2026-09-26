@@ -90,7 +90,8 @@ export async function postTweet(env, text) {
   if (!res.ok) {
     throw new Error(data.detail || data.title || `X API request failed: ${res.status}`);
   }
-  // Every post goes through here, so this is the one place X's monthly post cap is counted.
-  await logUsage(env, 'x_post');
+  // Every post goes through here, so this is the one place X spend is counted. Pay-per-use
+  // bills a post containing a link at a much higher rate, so the two are logged apart.
+  await logUsage(env, /https?:\/\//.test(text) ? 'x_post_link' : 'x_post');
   return data.data.id;
 }
