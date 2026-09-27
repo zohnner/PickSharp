@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, getLaunchGate, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -51,6 +51,7 @@ export default function AdminPanel({ session, loadingSession }) {
   const [funnel, setFunnel] = useState(null);
   const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [launch, setLaunch] = useState(null);
   const [gradeStatus, setGradeStatus] = useState(null);
   const [recapStatus, setRecapStatus] = useState(null);
   const [recapTweet, setRecapTweet] = useState(null);
@@ -80,6 +81,11 @@ export default function AdminPanel({ session, loadingSession }) {
       loadPicks();
       getFunnel()
         .then(setFunnel)
+        .catch(() => {
+          // Non-critical: the rest of the admin panel still works without it.
+        });
+      getLaunchGate()
+        .then(setLaunch)
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
@@ -501,6 +507,45 @@ export default function AdminPanel({ session, loadingSession }) {
             </button>
             {testEmailStatus && <span className="text-xs text-neutral-400">{testEmailStatus}</span>}
           </div>
+        </div>
+      )}
+
+      {launch && (
+        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white">Launch readiness</h2>
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-semibold ${launch.ready ? 'bg-green-900/40 text-green-300' : 'bg-neutral-800 text-neutral-400'}`}
+            >
+              {launch.ready ? 'Ready to launch' : 'Not yet'}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">
+            Paid subscriptions open when all four pass. Counts 2%+ edges with a closing line, excluding +200-or-longer
+            moneylines. You get one email the day it clears.
+          </p>
+          <ul className="mt-3 space-y-1 text-xs">
+            {launch.checks.map((c) => (
+              <li key={c.key} className={c.pass ? 'text-green-300' : 'text-neutral-400'}>
+                {c.pass ? '✓' : '○'} {c.label}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-neutral-300 sm:grid-cols-4">
+            <span>Edges: {launch.n}</span>
+            <span>Avg CLV: {launch.meanClv == null ? '—' : `${(launch.meanClv * 100).toFixed(2)}%`}</span>
+            <span>95% low: {launch.lowerBound == null ? '—' : `${(launch.lowerBound * 100).toFixed(2)}%`}</span>
+            <span>Days: {Math.floor(launch.spanDays)}</span>
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            {launch.edgesNeeded == null
+              ? 'Not enough positive-CLV data yet to project how many edges are needed.'
+              : launch.edgesNeeded === 0
+                ? 'Enough edges at the current average and spread.'
+                : `About ${launch.edgesNeeded} more edges needed at the current average and spread.`}
+            {launch.estimatedShare != null && ` ${Math.round(launch.estimatedShare * 100)}% of CLVs are moved-line estimates.`}
+            {` Left out: ${launch.excluded.longshots} longshots, ${launch.excluded.noClose} without a close.`}
+          </p>
         </div>
       )}
 

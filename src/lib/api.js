@@ -129,6 +129,11 @@ export async function sendTestEmail() {
   return request('/admin/test-email', { method: 'POST', headers });
 }
 
+export async function getLaunchGate() {
+  const headers = await authHeaders();
+  return request('/admin/launch', { headers });
+}
+
 export async function getUsage() {
   const headers = await authHeaders();
   return request('/admin/usage', { headers });

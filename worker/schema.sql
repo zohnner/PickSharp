@@ -236,3 +236,10 @@ CREATE TABLE IF NOT EXISTS free_edge_posts (
   result_status TEXT,
   result_tweet_id TEXT
 );
+
+-- One-time events (e.g. 'launch_ready': the edge record first cleared the launch bar),
+-- so their notification goes out once ever, not once a day.
+CREATE TABLE IF NOT EXISTS milestones (
+  key TEXT PRIMARY KEY,
+  reached_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

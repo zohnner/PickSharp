@@ -28,6 +28,7 @@ import { composeTweet } from './tweetCopy.js';
 import { postTweet } from './x.js';
 import { getUpcomingOdds, getEventProps, getRemainingCredits } from './oddsApi.js';
 import { loadUsage, usageWarnings } from './usage.js';
+import { evaluateLaunchGate } from './launchGate.js';
 import {
   isFreeEdgeTick,
   selectFreeEdge,
@@ -1095,6 +1096,29 @@ async function runFreeEdgeResult(env, nowMs) {
   }
 }
 
+// Never throws. Emails the owner the first time the launch gate passes -- once ever,
+// via the milestones row; a failed send releases it so the next day retries.
+async function runLaunchCheck(env, nowMs) {
+  try {
+    const gate = evaluateLaunchGate(await loadRecord(env, nowMs), nowMs);
+    console.log('[launch]', JSON.stringify({ ready: gate.ready, n: gate.n, mean: gate.meanClv, lower: gate.lowerBound }));
+    if (!gate.ready) return;
+    const claim = await env.DB.prepare(`INSERT OR IGNORE INTO milestones (key) VALUES ('launch_ready')`).run();
+    if (claim.meta.changes !== 1) return;
+    const pct = (x) => `${x > 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
+    const sent = await sendAdminAlert(env, 'launch-ready', 'the edge record cleared the launch bar', [
+      `${gate.n} core edges over ${Math.round(gate.spanDays)} days.`,
+      `Average CLV ${pct(gate.meanClv)}; 95% lower bound ${pct(gate.lowerBound)}.`,
+      `${Math.round((gate.estimatedShare ?? 0) * 100)}% of those CLVs are estimates (moved lines).`,
+      '',
+      'Per the strategy, paid subscriptions can open. Review the full numbers on the admin panel first.',
+    ]);
+    if (!sent.sent) await env.DB.prepare(`DELETE FROM milestones WHERE key = 'launch_ready'`).run();
+  } catch (err) {
+    console.error('[launch] check failed:', err.message);
+  }
+}
+
 // Never throws. Once a day, emails the owner if any API is at 80%+ of its free limit.
 async function runUsageCheck(env, nowMs) {
   try {
@@ -1568,6 +1592,10 @@ export default {
       if (pathname === '/api/admin/funnel' && request.method === 'GET') {
         return await handleAdminFunnel(request, env);
       }
+      if (pathname === '/api/admin/launch' && request.method === 'GET') {
+        if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+        return json(evaluateLaunchGate(await loadRecord(env), Date.now()));
+      }
       if (pathname === '/api/admin/usage' && request.method === 'GET') {
         if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
         return json({ services: await loadUsage(env, Date.now(), getRemainingCredits) });
@@ -1689,6 +1717,7 @@ export default {
             // After this tick's grading, so a game graded at 10:56 isn't reported as a gap.
             .then(() => isProofCheckTick(event.scheduledTime) && runProofCheck(env, event.scheduledTime))
             .then(() => isProofCheckTick(event.scheduledTime) && runUsageCheck(env, event.scheduledTime))
+            .then(() => isProofCheckTick(event.scheduledTime) && runLaunchCheck(env, event.scheduledTime))
         );
       }
     }
