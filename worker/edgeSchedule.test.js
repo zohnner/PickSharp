@@ -45,10 +45,11 @@ test('closing window is 10-15 minutes ahead of the tick', () => {
   });
 });
 
-test('budget guard keeps the reserve for the AI pipeline', () => {
-  assert.equal(withinBudget(157, 2, 150), true); // 157 - 6 = 151
-  assert.equal(withinBudget(155, 2, 150), false); // 155 - 6 = 149
-  assert.equal(withinBudget(null, 1, 150), false);
+test('budget guard: a scan must leave the reserve after its credit cost', () => {
+  assert.equal(withinBudget(157, 6, 150), true); // 157 - 6 = 151
+  assert.equal(withinBudget(155, 6, 150), false); // 155 - 6 = 149
+  assert.equal(withinBudget(151, 1, 150), true); // a moneyline-only closing scan costs 1
+  assert.equal(withinBudget(null, 3, 150), false);
 });
 
 test('parseReserve falls back to the default on bad input', () => {

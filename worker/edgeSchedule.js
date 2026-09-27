@@ -1,9 +1,13 @@
 // Timing and budget rules for the edge logger on The Odds API's free 500-credit plan.
 // Derived from event.scheduledTime, never event.cron (undocumented format).
 
-export const CREDITS_PER_SPORT_SCAN = 3; // h2h+spreads+totals, <=10 named bookmakers = 1 region
-export const DEFAULT_RESERVE = 30; // floor: credits always left for the AI pick pipeline
-export const DEFAULT_CREDITS_PER_DAY = 18; // pipeline's average daily Odds API spend
+// A request bills 1 credit per market (<=10 named bookmakers = 1 region), so a scan costs
+// its market count per sport: discovery asks for all three, closing only what it needs.
+export const ALL_MARKETS = ['h2h', 'spreads', 'totals'];
+export const DEFAULT_RESERVE = 30; // floor: credits never spent by edge scans
+// Held back per day until reset for the daily discovery scan (2 sports x 3 markets), so
+// closing scans stop first when credits run low. (Was 18 for the retired AI pipeline.)
+export const DEFAULT_CREDITS_PER_DAY = 6;
 export const DEFAULT_QUOTA_RESET_DAY = 1; // day-of-month (UTC) the Odds API's free plan resets
 
 const MINUTE = 60 * 1000;
@@ -30,9 +34,9 @@ export function closingWindow(ms) {
   return { fromIso: toFeedIso(ms + 10 * MINUTE), toIso: toFeedIso(ms + 15 * MINUTE) };
 }
 
-export function withinBudget(remaining, sportsCount, reserve) {
+export function withinBudget(remaining, credits, reserve) {
   if (!Number.isFinite(remaining)) return false;
-  return remaining - CREDITS_PER_SPORT_SCAN * sportsCount >= reserve;
+  return remaining - credits >= reserve;
 }
 
 export function parsePositiveInt(raw, fallback) {

@@ -81,28 +81,33 @@ test('budget guard: skips and records when the scan would cross the reserve floo
   assert.equal(scanRows(db)[0].args[3], 'budget');
 });
 
-// F2: the reserve is prorated by days left until the monthly quota resets, not a flat
-// floor, so far from reset day it demands far more than EDGE_SCAN_RESERVE alone. At
-// 2026-09-02T16:01:00Z with the defaults (resetDay=1, perDay=18), Oct 1 00:00 UTC is
-// 28 days 7h59m away = 28.332638... days; 18 * that = 509.9875, ceil = 510 credits --
-// well above the 30-credit floor. EDGE_SPORTS has 2 sports = 6 credits per discovery scan.
-const FAR_FROM_RESET = Date.parse('2026-09-02T16:01:00Z');
+// F2: closing scans must leave credits for the discovery scans still to come before the
+// quota resets. At 2026-09-02T16:06:00Z with the defaults (resetDay=1, perDay=6), Oct 1
+// 00:00 UTC is 28.3292 days away; 6 * that = 169.98, ceil = 170 credits held back. (The
+// old 18/day for the retired AI pipeline demanded 510 here -- more than the whole plan,
+// so every scan was blocked early in each cycle.)
+const FAR_FROM_RESET = Date.parse('2026-09-02T16:06:00Z');
+const closingDue = () =>
+  fakeDb({ 'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }], 'FROM edges WHERE commence_time >': [] });
 
-test('F2: prorated reserve (not the flat floor) skips a scan far from quota reset', async () => {
-  const db = fakeDb();
+test('F2: far from quota reset, a closing scan that would dip into the held-back credits is skipped', async () => {
   let fetched = false;
-  const r = await runEdgeScan({ DB: db }, FAR_FROM_RESET, {
-    ...deps(515), fetchSharpComparison: async () => { fetched = true; return []; }, // 515-6=509 < 510
+  const r = await runEdgeScan({ DB: closingDue() }, FAR_FROM_RESET, {
+    ...deps(170), fetchSharpComparison: async () => { fetched = true; return []; }, // 170-1=169 < 170
   });
-  assert.equal(r.ran, false);
   assert.equal(r.reason, 'budget');
   assert.equal(fetched, false);
 });
 
-test('F2: prorated reserve passes once remaining credits clear the prorated amount', async () => {
-  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
-  const r = await runEdgeScan({ DB: db }, FAR_FROM_RESET, deps(516)); // 516-6=510 >= 510
+test('F2: the closing scan runs once remaining credits clear the held-back amount', async () => {
+  const r = await runEdgeScan({ DB: closingDue() }, FAR_FROM_RESET, deps(171)); // 171-1=170 >= 170
   assert.equal(r.ran, true);
+});
+
+test('F2: discovery only needs the floor, even at the very start of a quota cycle', async () => {
+  const cycleStart = Date.parse('2026-09-01T16:01:00Z');
+  const r = await runEdgeScan({ DB: fakeDb({ 'FROM edges WHERE commence_time >': [] }) }, cycleStart, deps(40));
+  assert.equal(r.ran, true); // 40 - 6 = 34 >= 30
 });
 
 test('discovery scan upserts found edges and records the scan', async () => {
@@ -259,4 +264,39 @@ test('a spread that moved off the logged number still gets a close, from Pinnacl
   assert.ok(close.args[1] > 0.5); // -4.5 is worth more than the -6.5 close
   assert.equal(close.args[3], -6.5); // close_point
   assert.equal(close.args.at(-1), 9);
+});
+
+test('a closing scan fetches only the markets its window has logged edges in (1 credit per market)', async () => {
+  const tick = Date.parse('2026-09-25T00:01:00Z');
+  const db = fakeDb({
+    'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }],
+    'FROM edges WHERE commence_time >': [],
+  });
+  const asked = [];
+  const r = await runEdgeScan({ DB: db }, tick, {
+    ...deps(400),
+    fetchSharpComparison: async (_e, sport, _ms, markets) => { asked.push([sport, markets]); return [evt]; },
+  });
+  assert.equal(r.kind, 'closing');
+  assert.deepEqual(asked, [['americanfootball_nfl', 'h2h']]);
+});
+
+test('discovery always fetches all three markets', async () => {
+  const asked = [];
+  await runEdgeScan({ DB: fakeDb() }, DISCOVERY, {
+    ...deps(400),
+    fetchSharpComparison: async (_e, sport, _ms, markets) => { asked.push(markets); return []; },
+  });
+  assert.ok(asked.length > 0);
+  for (const m of asked) assert.equal(m, 'h2h,spreads,totals');
+});
+
+test('when credits are tight, closing scans stop before discovery does', async () => {
+  // Sep 26 23:46 UTC, reset on the 1st: ~4.01 days x 12/day -> 49 held back (floor 30).
+  const tick = Date.parse('2026-09-26T23:46:00Z');
+  const closingDb = fakeDb({ 'SELECT DISTINCT sport': [{ sport: 'americanfootball_ncaaf', market: 'h2h' }] });
+  const closing = await runEdgeScan({ DB: closingDb, EDGE_PIPELINE_CREDITS_PER_DAY: '12' }, tick, deps(45));
+  assert.equal(closing.reason, 'budget'); // 45 - 1 = 44 < 49
+  const discovery = await runEdgeScan({ DB: fakeDb(), EDGE_PIPELINE_CREDITS_PER_DAY: '12' }, DISCOVERY, deps(45));
+  assert.notEqual(discovery.reason, 'budget'); // discovery only needs the floor: 45 - 6 = 39 >= 30
 });

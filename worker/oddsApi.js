@@ -83,8 +83,9 @@ export const EDGE_SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf'];
 const EDGE_BOOKMAKERS = 'pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,fanatics,betrivers,hardrockbet';
 const EDGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function fetchSharpComparison(env, sportKey, nowMs) {
-  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&bookmakers=${EDGE_BOOKMAKERS}&markets=h2h,spreads,totals&oddsFormat=decimal&commenceTimeTo=${toFeedIso(nowMs + EDGE_WINDOW_MS)}`;
+// Billed 1 credit per market requested, so closing scans pass only the markets they need.
+export async function fetchSharpComparison(env, sportKey, nowMs, markets = 'h2h,spreads,totals') {
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&bookmakers=${EDGE_BOOKMAKERS}&markets=${markets}&oddsFormat=decimal&commenceTimeTo=${toFeedIso(nowMs + EDGE_WINDOW_MS)}`;
   const res = await fetch(url);
   logQuota(res, `${sportKey}/edges`);
   if (!res.ok) {

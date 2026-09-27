@@ -45,11 +45,14 @@ EMAIL_FROM = "PickSharp <picks@wepicksharp.com>"
 XAI_DISCOVERY_BUDGET_CEILING_USD = "18"
 # Edge logger (docs/superpowers/specs/2026-09-23-edge-logger-design.md). Exact "true" pauses.
 EDGE_SCAN_PAUSED = "false"
-# Floor credits always left for the AI pick pipeline, even right after quota reset.
+# Floor credits never spent by edge scans. The AI pick pipeline no longer uses the Odds
+# API (ESPN lines since 2026-09-26), so this is just a safety margin.
 EDGE_SCAN_RESERVE = "30"
-# AI pick pipeline's average Odds API spend per day; scales the reserve up the further
-# out the monthly quota reset is, so early-cycle edge scans can't starve the pipeline.
-EDGE_PIPELINE_CREDITS_PER_DAY = "18"
+# Credits held back per day until the quota resets, for the daily discovery scan (2
+# sports x 3 markets). Closing scans must leave this much, so when credits run low they
+# stop first and discovery keeps running. Was 18/day for the retired AI pipeline, which
+# exceeded the whole 500-credit plan early in each cycle and blocked every scan.
+EDGE_PIPELINE_CREDITS_PER_DAY = "6"
 # Day-of-month (UTC) the Odds API's free-plan quota resets.
 EDGE_QUOTA_RESET_DAY = "1"
 

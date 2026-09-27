@@ -2,7 +2,7 @@
 // D1 writes. All math and timing rules live in pure modules; this file only does I/O.
 import { findEdges, closingUpdates, edgeKey, pinnacleCloses, closeForEdge } from './edges.js';
 import {
-  isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, toFeedIso,
+  isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, toFeedIso, ALL_MARKETS,
   effectiveReserve, parseReserve, parsePositiveInt,
   DEFAULT_CREDITS_PER_DAY, DEFAULT_QUOTA_RESET_DAY,
 } from './edgeSchedule.js';
@@ -13,14 +13,25 @@ import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsAp
 // handleDailyPostCheck (~5 queries) when it shares the same invocation.
 const MAX_WRITES_PER_KIND = 15;
 
+// markets: sport -> markets to request. Discovery asks for everything; a closing scan only
+// for the markets with logged edges kicking off in its window (1 credit per market).
 async function dueScan(db, scheduledMs) {
-  if (isDiscoveryTick(scheduledMs)) return { kind: 'discovery', sports: EDGE_SPORTS };
+  if (isDiscoveryTick(scheduledMs)) {
+    return { kind: 'discovery', markets: new Map(EDGE_SPORTS.map((s) => [s, ALL_MARKETS])) };
+  }
   const { fromIso, toIso } = closingWindow(scheduledMs);
   const { results } = await db
-    .prepare(`SELECT DISTINCT sport FROM edges WHERE commence_time >= ? AND commence_time < ?`)
+    .prepare(`SELECT DISTINCT sport, market FROM edges WHERE commence_time >= ? AND commence_time < ?`)
     .bind(fromIso, toIso)
     .all();
-  return { kind: 'closing', sports: results.map((r) => r.sport) };
+  const markets = new Map();
+  for (const { sport, market } of results) {
+    const list = markets.get(sport) || [];
+    // An unknown market can't be narrowed down safely; fall back to all three.
+    const add = ALL_MARKETS.includes(market) ? [market] : ALL_MARKETS;
+    markets.set(sport, [...new Set([...list, ...add])]);
+  }
+  return { kind: 'closing', markets };
 }
 
 function recordScan(db, { kind, sports, ran, reason = null, remaining = null, found = null }) {
@@ -39,8 +50,10 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
 
   if (!isEdgeTick(scheduledMs)) return { ran: false, reason: 'not an edge tick' };
 
-  const { kind, sports } = await dueScan(db, scheduledMs);
+  const { kind, markets } = await dueScan(db, scheduledMs);
+  const sports = [...markets.keys()];
   if (sports.length === 0) return { ran: false, reason: 'nothing due' };
+  const credits = [...markets.values()].reduce((n, list) => n + list.length, 0);
 
   if (env.EDGE_SCAN_PAUSED === 'true') {
     await recordScan(db, { kind, sports, ran: 0, reason: 'paused' });
@@ -48,18 +61,27 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
   }
 
   const remaining = await getBalance(env);
-  const reserve = effectiveReserve(scheduledMs, {
-    floor: parseReserve(env.EDGE_SCAN_RESERVE),
-    perDay: parsePositiveInt(env.EDGE_PIPELINE_CREDITS_PER_DAY, DEFAULT_CREDITS_PER_DAY),
-    resetDay: parsePositiveInt(env.EDGE_QUOTA_RESET_DAY, DEFAULT_QUOTA_RESET_DAY),
-  });
-  if (!withinBudget(remaining, sports.length, reserve)) {
+  // Discovery (the product) only has to clear the floor. Closing scans must also leave
+  // the credits held back for the discovery scans still to come before the quota resets,
+  // so when credits run low the closes stop first.
+  const floor = parseReserve(env.EDGE_SCAN_RESERVE);
+  const reserve =
+    kind === 'discovery'
+      ? floor
+      : effectiveReserve(scheduledMs, {
+          floor,
+          perDay: parsePositiveInt(env.EDGE_PIPELINE_CREDITS_PER_DAY, DEFAULT_CREDITS_PER_DAY),
+          resetDay: parsePositiveInt(env.EDGE_QUOTA_RESET_DAY, DEFAULT_QUOTA_RESET_DAY),
+        });
+  if (!withinBudget(remaining, credits, reserve)) {
     console.log(`[edges] ${kind} scan skipped by budget guard (remaining=${remaining})`);
     await recordScan(db, { kind, sports, ran: 0, reason: 'budget', remaining });
     return { ran: false, reason: 'budget', kind };
   }
 
-  const results = await Promise.allSettled(sports.map((sport) => fetchOdds(env, sport, scheduledMs)));
+  const results = await Promise.allSettled(
+    sports.map((sport) => fetchOdds(env, sport, scheduledMs, markets.get(sport).join(',')))
+  );
   const events = [];
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') events.push(...r.value);
