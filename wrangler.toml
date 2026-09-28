@@ -53,7 +53,8 @@ EDGE_SCAN_RESERVE = "30"
 # stop first and discovery keeps running. Was 18/day for the retired AI pipeline, which
 # exceeded the whole 500-credit plan early in each cycle and blocked every scan.
 EDGE_PIPELINE_CREDITS_PER_DAY = "6"
-# Day-of-month (UTC) the Odds API's free-plan quota resets.
+# Day-of-month (UTC) the Odds API's free-plan quota resets -- only a fallback. Once the
+# recorded balance jumps back up, closing scans use the detected day (detectResetDay).
 EDGE_QUOTA_RESET_DAY = "1"
 
 [triggers]
