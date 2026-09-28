@@ -61,6 +61,24 @@ function nextResetMs(nowMs, resetDay) {
   return thisMonth > nowMs ? thisMonth : Date.UTC(y, m + 1, day, 0, 0, 0, 0);
 }
 
+// The Odds API doesn't expose its reset date, and the owner can't see it, so infer it: a
+// monthly reset shows up as the recorded balance jumping back up between two scans. The
+// later scan's day is used -- at most a day late with a daily discovery scan, which only
+// makes the reserve more cautious. scans: edge_scans rows, oldest first.
+const RESET_JUMP = 50;
+export function detectResetDay(scans) {
+  let prev = null;
+  let day = null;
+  for (const s of scans) {
+    if (s.credits_remaining == null) continue;
+    if (prev != null && s.credits_remaining - prev >= RESET_JUMP) {
+      day = new Date(String(s.scanned_at).replace(' ', 'T') + 'Z').getUTCDate();
+    }
+    prev = s.credits_remaining;
+  }
+  return day;
+}
+
 export function effectiveReserve(nowMs, { floor, perDay, resetDay }) {
   const daysUntilReset = (nextResetMs(nowMs, resetDay) - nowMs) / DAY_MS;
   return Math.max(floor, Math.ceil(perDay * daysUntilReset));

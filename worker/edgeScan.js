@@ -3,7 +3,7 @@
 import { findEdges, closingUpdates, edgeKey, pinnacleCloses, closeForEdge } from './edges.js';
 import {
   isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, toFeedIso, ALL_MARKETS,
-  effectiveReserve, parseReserve, parsePositiveInt,
+  effectiveReserve, parseReserve, parsePositiveInt, detectResetDay,
   DEFAULT_CREDITS_PER_DAY, DEFAULT_QUOTA_RESET_DAY,
 } from './edgeSchedule.js';
 import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
@@ -65,14 +65,24 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
   // the credits held back for the discovery scans still to come before the quota resets,
   // so when credits run low the closes stop first.
   const floor = parseReserve(env.EDGE_SCAN_RESERVE);
-  const reserve =
-    kind === 'discovery'
-      ? floor
-      : effectiveReserve(scheduledMs, {
-          floor,
-          perDay: parsePositiveInt(env.EDGE_PIPELINE_CREDITS_PER_DAY, DEFAULT_CREDITS_PER_DAY),
-          resetDay: parsePositiveInt(env.EDGE_QUOTA_RESET_DAY, DEFAULT_QUOTA_RESET_DAY),
-        });
+  let reserve = floor;
+  if (kind === 'closing') {
+    // The reset day comes from the balance history once a reset has been seen; until then
+    // the configured guess stands.
+    const { results: history } = await db
+      .prepare(
+        `SELECT credits_remaining, scanned_at FROM edge_scans WHERE credits_remaining IS NOT NULL
+         ORDER BY id DESC LIMIT 60`
+      )
+      .all();
+    reserve = effectiveReserve(scheduledMs, {
+      floor,
+      perDay: parsePositiveInt(env.EDGE_PIPELINE_CREDITS_PER_DAY, DEFAULT_CREDITS_PER_DAY),
+      resetDay:
+        detectResetDay([...history].reverse()) ??
+        parsePositiveInt(env.EDGE_QUOTA_RESET_DAY, DEFAULT_QUOTA_RESET_DAY),
+    });
+  }
   if (!withinBudget(remaining, credits, reserve)) {
     console.log(`[edges] ${kind} scan skipped by budget guard (remaining=${remaining})`);
     await recordScan(db, { kind, sports, ran: 0, reason: 'budget', remaining });

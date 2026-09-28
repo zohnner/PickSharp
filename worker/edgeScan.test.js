@@ -300,3 +300,25 @@ test('when credits are tight, closing scans stop before discovery does', async (
   const discovery = await runEdgeScan({ DB: fakeDb(), EDGE_PIPELINE_CREDITS_PER_DAY: '12' }, DISCOVERY, deps(45));
   assert.notEqual(discovery.reason, 'budget'); // discovery only needs the floor: 45 - 6 = 39 >= 30
 });
+
+test('the reserve uses the reset day detected from the balance history over the configured guess', async () => {
+  // Oct 20, closing tick. Configured reset day 1 -> ~11.3 days x 6 = 68 held back, so 50
+  // credits would skip. But the balance jumped on Sep 22, so the reset is ~1.3 days away
+  // and only the 30 floor applies.
+  const tick = Date.parse('2026-10-20T16:06:00Z');
+  const history = [ // newest first, as the ORDER BY id DESC query returns
+    { credits_remaining: 60, scanned_at: '2026-10-19 16:01:00' },
+    { credits_remaining: 497, scanned_at: '2026-09-22 16:01:00' },
+    { credits_remaining: 12, scanned_at: '2026-09-21 16:01:00' },
+  ];
+  const withHistory = fakeDb({
+    'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }],
+    'FROM edge_scans WHERE credits_remaining': history,
+    'FROM edges WHERE commence_time >': [],
+  });
+  const r = await runEdgeScan({ DB: withHistory }, tick, deps(50));
+  assert.equal(r.ran, true);
+  const noHistory = fakeDb({ 'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }] });
+  const skipped = await runEdgeScan({ DB: noHistory }, tick, deps(50));
+  assert.equal(skipped.reason, 'budget');
+});

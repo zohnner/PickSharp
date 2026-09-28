@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   toFeedIso, isEdgeTick, isDiscoveryTick, closingWindow, withinBudget, parseReserve, DEFAULT_RESERVE,
-  effectiveReserve, parsePositiveInt,
+  effectiveReserve, parsePositiveInt, detectResetDay,
 } from './edgeSchedule.js';
 
 const at = (iso) => Date.parse(iso);
@@ -109,4 +109,24 @@ test('parsePositiveInt falls back on bad input, generalized from parseReserve', 
   assert.equal(parsePositiveInt('', 5), 5);
   assert.equal(parsePositiveInt('-3', 5), 5);
   assert.equal(parsePositiveInt('abc', 5), 5);
+});
+
+// Scans oldest first, as edge_scans rows: { credits_remaining, scanned_at }.
+const scan = (credits, at) => ({ credits_remaining: credits, scanned_at: at });
+
+test('detectResetDay finds the day the balance jumped back up', () => {
+  const scans = [
+    scan(40, '2026-10-21 16:01:33'),
+    scan(37, '2026-10-22 00:46:51'),
+    scan(null, '2026-10-22 08:00:00'), // skipped scan with no balance
+    scan(494, '2026-10-22 16:01:33'), // reset between these two
+    scan(488, '2026-10-23 16:01:33'),
+  ];
+  assert.equal(detectResetDay(scans), 22);
+});
+
+test('detectResetDay uses the most recent reset and ignores small wobbles', () => {
+  assert.equal(detectResetDay([scan(20, '2026-10-21 16:01:00'), scan(500, '2026-10-22 16:01:00'), scan(30, '2026-11-20 16:01:00'), scan(497, '2026-11-21 16:01:00')]), 21);
+  assert.equal(detectResetDay([scan(200, '2026-10-01 16:01:00'), scan(230, '2026-10-02 16:01:00')]), null); // +30 isn't a reset
+  assert.equal(detectResetDay([]), null);
 });
