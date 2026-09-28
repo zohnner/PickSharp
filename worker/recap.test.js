@@ -123,3 +123,51 @@ test('a busy day is truncated to fit a tweet with a "+N more" line', () => {
   assert.match(tweet, /\+\d+ more/);
   assert.match(tweet, /20-0/);
 });
+
+// Longshots (+200 or longer moneylines) never lead a post: they lose most of the time
+// even at a good price. They get one summary line, win or lose -- never hidden.
+const longshot = (o) => graded({ selection: 'Rice Owls ML', odds: 525, market: 'h2h', grade: 'loss', units: -1, clv: 0.164, ...o });
+
+test('daily post lists core edges, summarizes longshots in one line, and leads with beating the close', () => {
+  const res = buildDailyResults(
+    record([
+      graded({ market: 'spreads' }), // core win, CLV +2.1%
+      graded({ market: 'totals', grade: 'loss', units: -1, selection: 'Over 52.5', clv: -0.01 }),
+      longshot(),
+      longshot({ grade: 'win', units: 4.25, clv: -0.05 }),
+      longshot({ clv: 0.05 }),
+    ]),
+    SAT
+  );
+  assert.equal(res.entries.length, 2);
+  assert.deepEqual([res.longshots.wins, res.longshots.losses], [1, 2]);
+  const tweet = composeDailyResultsTweet(res);
+  assert.match(tweet, /Beat the closing line on 1 of 2/);
+  assert.match(tweet, /Longshots \+200 \(tracked on site\): 1-2, CLV \+5\.5%/);
+  assert.doesNotMatch(tweet, /Rice Owls/);
+  assert.match(tweet, /Day: 1-1/); // core only
+});
+
+test('a longshot-only day still posts: the summary line is the whole story', () => {
+  const res = buildDailyResults(record([longshot()]), SAT);
+  assert.equal(res.entries.length, 0);
+  const tweet = composeDailyResultsTweet(res);
+  assert.match(tweet, /Longshots \+200 \(tracked on site\): 0-1/);
+  assert.doesNotMatch(tweet, /Beat the closing line/);
+});
+
+test('weekly recap counts core edges and reports longshots on their own line', () => {
+  const rec = buildWeeklyRecap(
+    record([
+      entry('2026-09-26T17:00:00Z', 'win', 0.9, 0.03, 0.02),
+      { ...entry('2026-09-26T17:00:00Z', 'loss', -1, 0.03, 0.1), market: 'h2h', odds: 400 },
+      { ...entry('2026-09-27T17:00:00Z', 'loss', -1, 0.03, 0.08), market: 'h2h', odds: 300 },
+    ]),
+    MONDAY
+  );
+  assert.deepEqual([rec.week.wins, rec.week.losses], [1, 0]);
+  assert.deepEqual([rec.longshots.wins, rec.longshots.losses], [0, 2]);
+  const tweet = composeRecapTweet(rec, 'https://wepicksharp.com');
+  assert.match(tweet, /2%\+ edges: 1-0, \+0\.90u/);
+  assert.match(tweet, /Longshots \+200 \(tracked on site\): 0-2, CLV \+9\.0%/);
+});

@@ -25,19 +25,30 @@ export function lastWeekDates(nowMs) {
   return Array.from({ length: 7 }, (_, i) => etDate(nowMs - (7 - i) * DAY_MS));
 }
 
+// Longshots (+200 or longer moneylines) lose most of the time even at a good price, and
+// margin removal is least reliable there. Posts lead with core edges -- the same rule as
+// the free edge and the launch gate -- and give longshots one summary line, win or lose,
+// never hidden. /record shows every edge.
+const isLongshot = (e) => e.market === 'h2h' && e.odds >= 200;
+const settledCount = (s) => s.wins + s.losses + s.pushes;
+
 // Returns null when no publish-bar edge settled last week -- nothing honest to post.
 export function buildWeeklyRecap(record, nowMs) {
   const dates = lastWeekDates(nowMs);
   const inWeek = new Set(dates);
   const barEdges = record.edges.filter((e) => e.ev >= record.publishBar);
-  const week = stats(barEdges.filter((e) => inWeek.has(etDate(e.commence_time))));
-  if (week.wins + week.losses + week.pushes === 0) return null;
+  const core = barEdges.filter((e) => !isLongshot(e));
+  const thisWeek = (e) => inWeek.has(etDate(e.commence_time));
+  const week = stats(core.filter(thisWeek));
+  const longshots = stats(barEdges.filter((e) => isLongshot(e) && thisWeek(e)));
+  if (settledCount(week) + settledCount(longshots) === 0) return null;
   return {
     weekStart: dates[0],
     label: `${shortDate(dates[0])}–${shortDate(dates[6])}`,
     barPct: Math.round(record.publishBar * 100),
     week,
-    season: stats(barEdges),
+    longshots,
+    season: stats(core),
   };
 }
 
@@ -47,6 +58,11 @@ const clvLine = (s) =>
   s.clv.count > 0
     ? `avg CLV ${signed(s.clv.avg * 100, 1)}% (${Math.round(s.clv.positiveShare * s.clv.count)} of ${s.clv.count} beat the close)`
     : null;
+const longshotLine = (s) =>
+  settledCount(s) === 0
+    ? null
+    : `Longshots +200 (tracked on site): ${recordLine(s)}` +
+      (s.clv.count > 0 ? `, CLV ${signed(s.clv.avg * 100, 1)}%` : '');
 
 export function composeRecapTweet(recap, siteUrl) {
   const lines = [
@@ -54,6 +70,7 @@ export function composeRecapTweet(recap, siteUrl) {
     '',
     `${recap.barPct}%+ edges: ${recordLine(recap.week)}, ${signed(recap.week.units, 2)}u`,
     clvLine(recap.week),
+    longshotLine(recap.longshots),
     `Season: ${recordLine(recap.season)}, ${signed(recap.season.units, 2)}u`,
     '',
     `Every edge, wins and losses, nothing removed 👉 ${siteUrl}/record?ref=x_recap`,
@@ -74,6 +91,9 @@ export function composeRecapEmail(recap, { siteUrl, unsubscribeLink, postalAddre
     ['ROI', w.roi == null ? '—' : `${signed(w.roi * 100, 1)}%`],
     ['Closing line value', clvLine(w) ?? 'no closes captured'],
     ['Season to date', `${recordLine(recap.season)}, ${signed(recap.season.units, 2)}u`],
+    ...(settledCount(recap.longshots) > 0
+      ? [['Longshots +200 (tracked separately)', longshotLine(recap.longshots).replace(/^Longshots \+200 \(tracked on site\): /, '')]]
+      : []),
   ];
   const text = [
     `PickSharp weekly edge report, ${recap.label}`,
@@ -124,19 +144,36 @@ const SETTLED = new Set(['win', 'loss', 'push']);
 export function buildDailyResults(record, nowMs) {
   const date = etDate(nowMs - DAY_MS);
   const barEdges = record.edges.filter((e) => e.ev >= record.publishBar);
-  const entries = barEdges.filter((e) => SETTLED.has(e.grade) && etDate(e.commence_time) === date);
-  if (entries.length === 0) return null;
-  return { date, label: shortDate(date), barPct: Math.round(record.publishBar * 100), entries, day: stats(entries), season: stats(barEdges) };
+  const settledYesterday = barEdges.filter((e) => SETTLED.has(e.grade) && etDate(e.commence_time) === date);
+  const entries = settledYesterday.filter((e) => !isLongshot(e));
+  const longs = settledYesterday.filter(isLongshot);
+  if (settledYesterday.length === 0) return null;
+  return {
+    date,
+    label: shortDate(date),
+    barPct: Math.round(record.publishBar * 100),
+    entries,
+    day: stats(entries),
+    longshots: stats(longs),
+    season: stats(barEdges.filter((e) => !isLongshot(e))),
+  };
 }
 
 const ICONS = { win: '✅', loss: '❌', push: '➖' };
 const fmtOdds = (o) => (o == null ? '' : ` (${o > 0 ? '+' : ''}${o})`);
 
 export function composeDailyResultsTweet(results) {
-  const head = [`📈 PickSharp ${results.barPct}%+ edges, ${results.label}`, ''];
+  // Beating the close is the signal that matters on any single day; win/loss is mostly noise.
+  const { clv } = results.day;
+  const beat = clv.count > 0 ? `Beat the closing line on ${Math.round(clv.positiveShare * clv.count)} of ${clv.count}` : null;
+  const head = [`📈 PickSharp ${results.barPct}%+ edges, ${results.label}`, ...(beat ? [beat] : []), ''];
+  const season = `Season: ${recordLine(results.season)}, ${signed(results.season.units, 2)}u`;
   const tail = [
-    '',
-    `Day: ${recordLine(results.day)}, ${signed(results.day.units, 2)}u · Season: ${recordLine(results.season)}, ${signed(results.season.units, 2)}u`,
+    ...(results.entries.length > 0 ? [''] : []),
+    ...[longshotLine(results.longshots)].filter(Boolean),
+    results.entries.length > 0
+      ? `Day: ${recordLine(results.day)}, ${signed(results.day.units, 2)}u · ${season}`
+      : season,
     // No URL: a link post costs $0.20 on X's pay-per-use API vs $0.015. The bio links /record.
     'Every edge, wins and losses: link in bio 👆',
   ];
