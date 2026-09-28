@@ -60,12 +60,21 @@ export function parseEspnScoreboard(data) {
     if (!home || !away || !Number.isFinite(homeScore) || !Number.isFinite(awayScore)) continue;
     const names = (c) =>
       [c.team?.displayName, `${c.team?.location || ''} ${c.team?.name || ''}`].map(normalizeTeam).filter(Boolean);
-    games.push({ date: event.date, home: names(home), away: names(away), homeScore, awayScore });
+    games.push({
+      date: event.date,
+      home: names(home),
+      away: names(away),
+      homeMascot: normalizeTeam(home.team?.name),
+      awayMascot: normalizeTeam(away.team?.name),
+      homeScore,
+      awayScore,
+    });
   }
   return games;
 }
 
 const MATCH_WINDOW_MS = 12 * 60 * 60 * 1000;
+const MASCOT_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 // `game` is the edges.game string, "<away> @ <home>" in Odds API names.
 export function splitGame(game) {
@@ -79,14 +88,27 @@ export function findFinal(espnGames, { game, commence_time }) {
   const home = normalizeTeam(teams.home);
   const away = normalizeTeam(teams.away);
   const kickoff = Date.parse(commence_time);
-  return (
-    espnGames.find(
-      (g) =>
-        g.home.includes(home) &&
-        g.away.includes(away) &&
-        !(Math.abs(Date.parse(g.date) - kickoff) > MATCH_WINDOW_MS)
-    ) || null
+  const exact = espnGames.find(
+    (g) =>
+      g.home.includes(home) &&
+      g.away.includes(away) &&
+      !(Math.abs(Date.parse(g.date) - kickoff) > MATCH_WINDOW_MS)
   );
+  if (exact) return exact;
+
+  // Some schools are named differently by the two feeds ("Southern Miss" vs "Southern
+  // Mississippi", "Massachusetts" vs "UMass"), but the mascot ends both names. Fall back
+  // to both mascots near kickoff -- and only when exactly one game fits, so a common
+  // pairing (two Tigers-Bulldogs games) is left ungraded rather than guessed.
+  const byMascot = espnGames.filter(
+    (g) =>
+      g.homeMascot &&
+      g.awayMascot &&
+      home.endsWith(g.homeMascot) &&
+      away.endsWith(g.awayMascot) &&
+      Math.abs(Date.parse(g.date) - kickoff) <= MASCOT_WINDOW_MS
+  );
+  return byMascot.length === 1 ? byMascot[0] : null;
 }
 
 // result: { home_team, away_team, home_score, away_score } with Odds API team names.

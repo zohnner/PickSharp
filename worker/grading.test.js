@@ -107,3 +107,31 @@ test('unitsFor pays decimal odds on a win, -1 on a loss, 0 on a push', () => {
   assert.equal(unitsFor('loss', 2.5), -1);
   assert.equal(unitsFor('push', 2.5), 0);
 });
+
+// ESPN and the Odds API disagree on some school names ("Southern Miss" vs "Southern
+// Mississippi", "Massachusetts" vs "UMass"). When exact names fail, both mascots must
+// match within 3h of kickoff, and only a single candidate counts.
+const scoreboard = (...events) => parseEspnScoreboard({ events });
+const game = (date, [hName, hLoc, hMascot, hScore], [aName, aLoc, aMascot, aScore]) =>
+  espnEvent(date, true, competitor('home', hName, hLoc, hMascot, hScore), competitor('away', aName, aLoc, aMascot, aScore));
+
+test('findFinal falls back to both mascots when a school name differs between feeds', () => {
+  const finals = scoreboard(
+    game('2026-09-26T23:00Z', ['Tulane Green Wave', 'Tulane', 'Green Wave', '38'], ['Southern Miss Golden Eagles', 'Southern Miss', 'Golden Eagles', '17']),
+    game('2026-09-27T01:00Z', ['Sacramento State Hornets', 'Sacramento State', 'Hornets', '24'], ['Massachusetts Minutemen', 'Massachusetts', 'Minutemen', '21'])
+  );
+  const tulane = findFinal(finals, { game: 'Southern Mississippi Golden Eagles @ Tulane Green Wave', commence_time: '2026-09-26T23:00:00Z' });
+  assert.deepEqual([tulane.homeScore, tulane.awayScore], [38, 17]);
+  const sac = findFinal(finals, { game: 'UMass Minutemen @ Sacramento State Hornets', commence_time: '2026-09-27T01:00:00Z' });
+  assert.deepEqual([sac.homeScore, sac.awayScore], [24, 21]);
+});
+
+test('the mascot fallback refuses to guess between two matching games, or far from kickoff', () => {
+  const tigers = (date, h, a) => game(date, [`${h} Tigers`, h, 'Tigers', '10'], [`${a} Bulldogs`, a, 'Bulldogs', '7']);
+  const two = scoreboard(tigers('2026-09-26T19:00Z', 'Auburn', 'Georgia'), tigers('2026-09-26T20:00Z', 'Missouri', 'Mississippi State'));
+  assert.equal(findFinal(two, { game: 'Some Bulldogs @ Other Tigers', commence_time: '2026-09-26T19:30:00Z' }), null);
+  const one = scoreboard(tigers('2026-09-26T19:00Z', 'Auburn', 'Georgia'));
+  assert.equal(findFinal(one, { game: 'Georgia State Bulldogs @ Auburn Tigers', commence_time: '2026-09-26T23:30:00Z' }), null); // 4.5h off
+  // Exact names still match anywhere in the usual 12h window.
+  assert.ok(findFinal(one, { game: 'Georgia Bulldogs @ Auburn Tigers', commence_time: '2026-09-26T23:30:00Z' }));
+});
