@@ -46,7 +46,7 @@ import { runEdgeScan } from './edgeScan.js';
 import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
-import { isPostFailure, sendAdminAlert } from './alerts.js';
+import { isSlotFailure, sendAdminAlert } from './alerts.js';
 import {
   isRecapTick,
   buildWeeklyRecap,
@@ -770,7 +770,7 @@ async function generateForSlot(env, slot) {
   }
   if (consistent.length === 0) {
     console.log(`[${slot}] Every grounded pick conflicted with an existing pick, nothing inserted.`);
-    return { inserted: 0 };
+    return { inserted: 0, reason: 'every pick conflicted' };
   }
 
   // The prompt asks for 3-5 picks, but nothing else caps it -- guard against a model
@@ -1748,7 +1748,7 @@ async function generateAndPostSlot(env, slot) {
     console.error(`[${slot}] postSlot threw unexpectedly:`, err.message);
   }
 
-  if (isPostFailure(posted)) {
+  if (isSlotFailure(generated, posted)) {
     const alert = await sendAdminAlert(env, `slot:${slot}`, `${slot} slot did not post`, [
       `The ${slot} slot ran but nothing was posted to X.`,
       '',

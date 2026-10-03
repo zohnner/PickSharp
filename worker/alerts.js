@@ -10,6 +10,17 @@ export function isPostFailure(result) {
   return !EXPECTED_POST_REASONS.some((re) => re.test(result.reason || ''));
 }
 
+// Generation outcomes that leave a slot with nothing to post by design: a thin slate the
+// earlier slot already covered (e.g. a 3-game Thursday), or no games left today.
+const EXPECTED_EMPTY_GENERATION = ['every pick conflicted', 'no games today'];
+
+// generated: generateForSlot's result; posted: postSlot's result.
+export function isSlotFailure(generated, posted) {
+  if (!isPostFailure(posted)) return false;
+  const emptySlot = /^No picks found/.test(posted.reason || '');
+  return !(emptySlot && EXPECTED_EMPTY_GENERATION.includes(generated?.reason));
+}
+
 export function adminAlertRecipient(env) {
   const first = (env.ADMIN_EMAILS || '').split(',')[0].trim().toLowerCase();
   return first || null;
