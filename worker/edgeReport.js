@@ -1,3 +1,5 @@
+import { isCoreEdge } from './coreEdge.js';
+
 // Admin summary for the edge logger. CLV = first_price * close_fair_prob - 1, counted
 // only once the game has kicked off (before that the "close" is still moving).
 
@@ -33,13 +35,14 @@ export function findProofGaps(rows, nowMs) {
   const ungraded = new Set();
   const unmatched = new Set();
   // A game's edges share one closing scan, so any edge with a valid close means the
-  // scan ran; only games where none got one are reported.
+  // scan ran; only games where none got one are reported. Only core edges are bought a
+  // closing scan, so only they are expected to have one.
   const closeByGame = new Map();
   for (const r of rows) {
     const kickoff = Date.parse(r.commence_time);
     if (!r.result_status && nowMs - kickoff >= UNGRADED_AFTER_MS) ungraded.add(r.game);
     if (r.result_status === 'unmatched' && nowMs - sqlTimeMs(r.graded_at) <= DAY_MS) unmatched.add(r.game);
-    if (kickoff <= nowMs && nowMs - kickoff <= DAY_MS) {
+    if (kickoff <= nowMs && nowMs - kickoff <= DAY_MS && isCoreEdge(r.first_ev, r.market, r.first_price)) {
       closeByGame.set(r.game, closeByGame.get(r.game) || isValidClose(r, nowMs));
     }
   }

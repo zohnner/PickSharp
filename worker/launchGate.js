@@ -1,3 +1,5 @@
+import { LONGSHOT_AMERICAN } from './coreEdge.js';
+
 // The go/no-go for paid subscriptions: "launch when the data clears the bar", as numbers.
 // The edges must beat the closing line on average, by enough and over enough bets that
 // it's very unlikely to be luck. Built from the same buildRecord output as /record.
@@ -12,7 +14,7 @@ export const GATE = {
   z: 1.645,
   // +200 and longer moneylines are reported on /record but never count toward launch:
   // margin removal is least reliable there, so a streak could pass for skill.
-  longshotOdds: 200,
+  longshotOdds: LONGSHOT_AMERICAN,
 };
 
 // record: buildRecord output ({ publishBar, edges: [{ ev, market, odds, clv, clvEstimated, commence_time }] }).

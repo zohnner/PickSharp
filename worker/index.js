@@ -978,6 +978,7 @@ async function runProofCheck(env, nowMs) {
   try {
     const { results } = await env.DB.prepare(
       `SELECT e.event_id, e.game, e.commence_time, e.close_fair_prob, e.close_updated_at,
+              e.market, e.first_price, e.first_ev,
               g.status AS result_status, g.graded_at
        FROM edges e LEFT JOIN game_results g ON g.event_id = e.event_id
        WHERE e.commence_time >= ? AND e.commence_time <= ?`

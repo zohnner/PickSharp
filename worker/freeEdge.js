@@ -1,7 +1,8 @@
 // One live edge a day, posted to X right after the daily discovery scan: the public
 // taste of the paid product. It spends no Odds API credits (it reads what the 16:01 UTC
 // scan just logged) and one X post. Its result lands in the next morning's results post.
-import { PUBLISH_BAR_EV, BOOK_NAMES, americanOdds, selectionLabel } from './record.js';
+import { BOOK_NAMES, americanOdds, selectionLabel } from './record.js';
+import { isCoreEdge } from './coreEdge.js';
 import { tweetLength, TWEET_LIMIT } from './x.js';
 import { gradeEdge, unitsFor } from './grading.js';
 import { isValidClose } from './edgeReport.js';
@@ -21,9 +22,6 @@ const FRESH_WITHIN = 30 * MIN;
 // Enough lead time to place the bet, and close enough that the price is still likely there.
 const MIN_LEAD = 30 * MIN;
 const MAX_LEAD = 48 * HOUR;
-// +200 and longer: margin removal is least reliable there (see record.js SEGMENTS), so the
-// one edge we put our name on publicly is never a longshot.
-const LONGSHOT_DECIMAL = 3.0;
 
 const sqlMs = (s) => Date.parse(String(s).replace(' ', 'T') + (String(s).endsWith('Z') ? '' : 'Z'));
 
@@ -31,11 +29,11 @@ export function selectFreeEdge(rows, nowMs) {
   const eligible = rows.filter((r) => {
     const lead = Date.parse(r.commence_time) - nowMs;
     return (
-      r.first_ev >= PUBLISH_BAR_EV &&
+      // Core only: the one edge we put our name on publicly is never a longshot.
+      isCoreEdge(r.first_ev, r.market, r.first_price) &&
       nowMs - sqlMs(r.first_seen_at) <= FRESH_WITHIN &&
       lead >= MIN_LEAD &&
-      lead <= MAX_LEAD &&
-      !(r.market === 'h2h' && r.first_price >= LONGSHOT_DECIMAL)
+      lead <= MAX_LEAD
     );
   });
   if (eligible.length === 0) return null;

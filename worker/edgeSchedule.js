@@ -5,9 +5,10 @@
 // its market count per sport: discovery asks for all three, closing only what it needs.
 export const ALL_MARKETS = ['h2h', 'spreads', 'totals'];
 export const DEFAULT_RESERVE = 30; // floor: credits never spent by edge scans
-// Held back per day until reset for the daily discovery scan (2 sports x 3 markets), so
-// closing scans stop first when credits run low. (Was 18 for the retired AI pipeline.)
-export const DEFAULT_CREDITS_PER_DAY = 6;
+// Held back per day until reset for the daily discovery scan (3 sports x 3 markets once the
+// NBA starts), so closing scans stop first when credits run low. (Was 18 for the retired
+// AI pipeline, then 6 for football alone.)
+export const DEFAULT_CREDITS_PER_DAY = 9;
 export const DEFAULT_QUOTA_RESET_DAY = 1; // day-of-month (UTC) the Odds API's free plan resets
 
 const MINUTE = 60 * 1000;

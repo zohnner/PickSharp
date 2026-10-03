@@ -82,8 +82,8 @@ test('budget guard: skips and records when the scan would cross the reserve floo
 });
 
 // F2: closing scans must leave credits for the discovery scans still to come before the
-// quota resets. At 2026-09-02T16:06:00Z with the defaults (resetDay=1, perDay=6), Oct 1
-// 00:00 UTC is 28.3292 days away; 6 * that = 169.98, ceil = 170 credits held back. (The
+// quota resets. At 2026-09-02T16:06:00Z with the defaults (resetDay=1, perDay=9), Oct 1
+// 00:00 UTC is 28.3292 days away; 9 * that = 254.96, ceil = 255 credits held back. (The
 // old 18/day for the retired AI pipeline demanded 510 here -- more than the whole plan,
 // so every scan was blocked early in each cycle.)
 const FAR_FROM_RESET = Date.parse('2026-09-02T16:06:00Z');
@@ -93,14 +93,14 @@ const closingDue = () =>
 test('F2: far from quota reset, a closing scan that would dip into the held-back credits is skipped', async () => {
   let fetched = false;
   const r = await runEdgeScan({ DB: closingDue() }, FAR_FROM_RESET, {
-    ...deps(170), fetchSharpComparison: async () => { fetched = true; return []; }, // 170-1=169 < 170
+    ...deps(255), fetchSharpComparison: async () => { fetched = true; return []; }, // 255-1=254 < 255
   });
   assert.equal(r.reason, 'budget');
   assert.equal(fetched, false);
 });
 
 test('F2: the closing scan runs once remaining credits clear the held-back amount', async () => {
-  const r = await runEdgeScan({ DB: closingDue() }, FAR_FROM_RESET, deps(171)); // 171-1=170 >= 170
+  const r = await runEdgeScan({ DB: closingDue() }, FAR_FROM_RESET, deps(256)); // 256-1=255 >= 255
   assert.equal(r.ran, true);
 });
 
@@ -180,7 +180,7 @@ test('F3: open-edge query orders by soonest kickoff, and the cap keeps the soone
   });
 
   const selectStmt = db.log.find((s) => s.sql.includes('SELECT id, event_id'));
-  assert.match(selectStmt.sql, /ORDER BY commence_time ASC/);
+  assert.ok(selectStmt.sql.includes(`ORDER BY commence_time ASC, (first_ev >= 0.02 AND NOT (market = 'h2h' AND first_price >= 3)) DESC`));
 
   const closes = db.log.filter((s) => s.sql.includes('SET close_price'));
   assert.equal(closes.length, 15);
@@ -321,4 +321,22 @@ test('the reserve uses the reset day detected from the balance history over the 
   const noHistory = fakeDb({ 'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }] });
   const skipped = await runEdgeScan({ DB: noHistory }, tick, deps(50));
   assert.equal(skipped.reason, 'budget');
+});
+
+test('closing scans only buy closes for gate-eligible (core) edges', async () => {
+  const tick = Date.parse('2026-09-25T00:01:00Z');
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  await runEdgeScan({ DB: db }, tick, deps(400));
+  const due = db.log.find((s) => s.sql.includes('SELECT DISTINCT sport'));
+  assert.ok(due.sql.endsWith(`AND (first_ev >= 0.02 AND NOT (market = 'h2h' AND first_price >= 3))`));
+});
+
+test('discovery adds the NBA from EDGE_NBA_START', async () => {
+  const scanned = [];
+  const fetch = async (_e, sport) => { scanned.push(sport); return []; };
+  await runEdgeScan({ DB: fakeDb(), EDGE_NBA_START: '2026-10-20' }, DISCOVERY, { ...deps(400), fetchSharpComparison: fetch });
+  assert.deepEqual(scanned, ['americanfootball_nfl', 'americanfootball_ncaaf']);
+  scanned.length = 0;
+  await runEdgeScan({ DB: fakeDb(), EDGE_NBA_START: '2026-10-20' }, Date.parse('2026-10-20T16:01:00Z'), { ...deps(400), fetchSharpComparison: fetch });
+  assert.deepEqual(scanned, ['americanfootball_nfl', 'americanfootball_ncaaf', 'basketball_nba']);
 });

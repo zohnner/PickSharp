@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { getUpcomingOdds, resetOddsCacheForTests, fetchSharpComparison, getRemainingCredits, EDGE_SPORTS } from './oddsApi.js';
+import { getUpcomingOdds, resetOddsCacheForTests, fetchSharpComparison, getRemainingCredits, edgeSportsAt } from './oddsApi.js';
 
 let calls;
 let inits;
@@ -101,6 +101,17 @@ test('remaining credits is null when the call fails', async () => {
   assert.equal(await getRemainingCredits(env), null);
 });
 
-test('edge sports are NFL and NCAAF only', () => {
-  assert.deepEqual(EDGE_SPORTS, ['americanfootball_nfl', 'americanfootball_ncaaf']);
+test('edge sports are football until the NBA start date, then football and NBA', () => {
+  const football = ['americanfootball_nfl', 'americanfootball_ncaaf'];
+  const env = { EDGE_NBA_START: '2026-10-20' };
+  assert.deepEqual(edgeSportsAt(Date.parse('2026-10-19T16:01:00Z'), env), football);
+  assert.deepEqual(edgeSportsAt(Date.parse('2026-10-20T16:01:00Z'), env), [...football, 'basketball_nba']);
+  // Unset falls back to the default opener; a malformed date keeps the NBA off.
+  assert.deepEqual(edgeSportsAt(Date.parse('2026-10-20T16:01:00Z'), {}), [...football, 'basketball_nba']);
+  assert.deepEqual(edgeSportsAt(Date.parse('2026-12-01T16:01:00Z'), { EDGE_NBA_START: 'soon' }), football);
+});
+
+test('NBA discovery looks 48h ahead, not 7 days', async () => {
+  await fetchSharpComparison(env, 'basketball_nba', Date.parse('2026-10-20T16:01:00Z'));
+  assert.match(calls.at(-1), /commenceTimeTo=2026-10-22T16:01:00Z/);
 });

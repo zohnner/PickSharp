@@ -105,7 +105,7 @@ test('empty input gives nulls, not NaN', () => {
 // Proof-health check: rows are edges LEFT JOIN game_results (result_status, graded_at).
 const CHECK = Date.parse('2026-09-26T10:56:00Z');
 const gap = (o) => ({
-  event_id: 'e1', game: 'Atlanta Falcons @ Green Bay Packers',
+  event_id: 'e1', game: 'Atlanta Falcons @ Green Bay Packers', market: 'spreads', first_price: 1.91, first_ev: 0.025,
   commence_time: '2026-09-25T00:15:00Z', close_fair_prob: 0.5,
   close_updated_at: '2026-09-25 00:03:00', result_status: 'final', graded_at: '2026-09-25 08:01:00',
   ...o,
@@ -135,6 +135,16 @@ test('flags a game from the last 24h whose edges have no valid close', () => {
   const stale = gap({ event_id: 'e2', game: 'Early @ Close', commence_time: kickoff, close_updated_at: '2026-09-25 16:00:00' });
   const older = gap({ event_id: 'e3', game: 'Two @ Days', close_fair_prob: null, commence_time: '2026-09-24T20:00:00Z' });
   assert.deepEqual(findProofGaps([none, stale, older], CHECK).missingClose, ['Atlanta Falcons @ Green Bay Packers', 'Early @ Close']);
+});
+
+test('a missing close only counts for core edges, since only those get a closing scan', () => {
+  const kickoff = '2026-09-26T00:00:00Z';
+  const longshot = gap({ commence_time: kickoff, close_fair_prob: null, market: 'h2h', first_price: 6.0, first_ev: 0.05 });
+  const small = gap({ event_id: 'e2', game: 'Small @ Edge', commence_time: kickoff, close_fair_prob: null, first_ev: 0.012 });
+  assert.deepEqual(findProofGaps([longshot, small], CHECK).missingClose, []);
+  // A game with a core edge and a longshot is judged on the core edge alone.
+  const core = gap({ event_id: 'e1', commence_time: kickoff, close_fair_prob: null });
+  assert.deepEqual(findProofGaps([core, { ...longshot, close_fair_prob: 0.2 }], CHECK).missingClose, ['Atlanta Falcons @ Green Bay Packers']);
 });
 
 test('the proof check runs once a day, on the last grading tick', () => {

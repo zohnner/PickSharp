@@ -3,9 +3,9 @@
 // live edges stay private for the future paid product.
 import { gradeEdge, unitsFor } from './grading.js';
 import { isValidClose } from './edgeReport.js';
+import { PUBLISH_BAR_EV } from './coreEdge.js';
 
-// The strategy's "would publish" bar; 1-2% edges are logged to see the distribution.
-export const PUBLISH_BAR_EV = 0.02;
+export { PUBLISH_BAR_EV };
 
 export const BOOK_NAMES = {
   draftkings: 'DraftKings',

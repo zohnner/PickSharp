@@ -76,16 +76,26 @@ export async function getEventProps(env, sportKey, eventId) {
   return res.json();
 }
 
-export const EDGE_SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf'];
+const FOOTBALL_EDGE_SPORTS = ['americanfootball_nfl', 'americanfootball_ncaaf'];
+// The NBA joins on its regular-season opener (EDGE_NBA_START, YYYY-MM-DD UTC): preseason
+// lines shouldn't count toward the launch gate. A malformed date keeps the NBA off.
+const DEFAULT_NBA_START = '2026-10-20';
+export function edgeSportsAt(ms, env) {
+  const start = Date.parse(`${env.EDGE_NBA_START || DEFAULT_NBA_START}T00:00:00Z`);
+  return ms >= start ? [...FOOTBALL_EDGE_SPORTS, 'basketball_nba'] : FOOTBALL_EDGE_SPORTS;
+}
 
 // Up to 10 named bookmakers bill as one region (3 credits for 3 markets, verified live);
 // Pinnacle is the sharp reference, the rest are books a US bettor can actually use.
 const EDGE_BOOKMAKERS = 'pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,fanatics,betrivers,hardrockbet';
-const EDGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// NBA lines rarely post more than a day out, and a week of NBA games is a big payload for
+// the free plan's 10ms CPU limit, so the NBA looks 48h ahead; football a week.
+const HOUR_MS = 60 * 60 * 1000;
+const edgeWindowMs = (sportKey) => (sportKey === 'basketball_nba' ? 48 : 7 * 24) * HOUR_MS;
 
 // Billed 1 credit per market requested, so closing scans pass only the markets they need.
 export async function fetchSharpComparison(env, sportKey, nowMs, markets = 'h2h,spreads,totals') {
-  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&bookmakers=${EDGE_BOOKMAKERS}&markets=${markets}&oddsFormat=decimal&commenceTimeTo=${toFeedIso(nowMs + EDGE_WINDOW_MS)}`;
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?apiKey=${env.ODDS_API_KEY}&bookmakers=${EDGE_BOOKMAKERS}&markets=${markets}&oddsFormat=decimal&commenceTimeTo=${toFeedIso(nowMs + edgeWindowMs(sportKey))}`;
   const res = await fetch(url);
   logQuota(res, `${sportKey}/edges`);
   if (!res.ok) {

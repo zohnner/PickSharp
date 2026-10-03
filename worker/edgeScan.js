@@ -6,7 +6,8 @@ import {
   effectiveReserve, parseReserve, parsePositiveInt, detectResetDay,
   DEFAULT_CREDITS_PER_DAY, DEFAULT_QUOTA_RESET_DAY,
 } from './edgeSchedule.js';
-import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
+import { edgeSportsAt, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
+import { CORE_EDGE_SQL, rankForLogging } from './coreEdge.js';
 
 // D1 allows 50 queries per invocation on the free plan: 15 upserts + 15 close updates +
 // the handful of selects/inserts around them stays under it, leaving headroom for
@@ -14,14 +15,15 @@ import { EDGE_SPORTS, fetchSharpComparison, getRemainingCredits } from './oddsAp
 const MAX_WRITES_PER_KIND = 15;
 
 // markets: sport -> markets to request. Discovery asks for everything; a closing scan only
-// for the markets with logged edges kicking off in its window (1 credit per market).
-async function dueScan(db, scheduledMs) {
+// for the markets with logged core edges kicking off in its window (1 credit per market).
+// Non-core edges are still graded, and pick up a close when they share a scan.
+async function dueScan(db, env, scheduledMs) {
   if (isDiscoveryTick(scheduledMs)) {
-    return { kind: 'discovery', markets: new Map(EDGE_SPORTS.map((s) => [s, ALL_MARKETS])) };
+    return { kind: 'discovery', markets: new Map(edgeSportsAt(scheduledMs, env).map((s) => [s, ALL_MARKETS])) };
   }
   const { fromIso, toIso } = closingWindow(scheduledMs);
   const { results } = await db
-    .prepare(`SELECT DISTINCT sport, market FROM edges WHERE commence_time >= ? AND commence_time < ?`)
+    .prepare(`SELECT DISTINCT sport, market FROM edges WHERE commence_time >= ? AND commence_time < ? AND ${CORE_EDGE_SQL}`)
     .bind(fromIso, toIso)
     .all();
   const markets = new Map();
@@ -50,7 +52,7 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
 
   if (!isEdgeTick(scheduledMs)) return { ran: false, reason: 'not an edge tick' };
 
-  const { kind, markets } = await dueScan(db, scheduledMs);
+  const { kind, markets } = await dueScan(db, env, scheduledMs);
   const sports = [...markets.keys()];
   if (sports.length === 0) return { ran: false, reason: 'nothing due' };
   const credits = [...markets.values()].reduce((n, list) => n + list.length, 0);
@@ -103,7 +105,7 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
   }
 
   // 1. Upsert edges: first_* fields stick; peak and last-seen advance.
-  const found = findEdges(events, scheduledMs).sort((a, b) => b.ev - a.ev);
+  const found = rankForLogging(findEdges(events, scheduledMs));
   if (found.length > MAX_WRITES_PER_KIND) {
     console.warn(`[edges] ${found.length} edges found, logging the top ${MAX_WRITES_PER_KIND}`);
   }
@@ -128,11 +130,12 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
     // 2. Refresh the closing line of every logged edge whose game hasn't started. The last
     //    write before kickoff stands as the close.
     // Ordered soonest-first so that if there are more open edges than MAX_WRITES_PER_KIND,
-    // the write cap below keeps the ones about to kick off rather than an arbitrary slice.
+    // the write cap below keeps the ones about to kick off rather than an arbitrary slice,
+    // and core edges ahead of the rest at the same kickoff.
     const { results: openEdges } = await db
       .prepare(
         `SELECT id, event_id, sport, market, outcome, point, book FROM edges WHERE commence_time > ?
-         ORDER BY commence_time ASC`
+         ORDER BY commence_time ASC, ${CORE_EDGE_SQL} DESC`
       )
       .bind(toFeedIso(scheduledMs))
       .all();
