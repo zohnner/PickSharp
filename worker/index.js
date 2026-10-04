@@ -46,6 +46,7 @@ import { runEdgeScan } from './edgeScan.js';
 import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
+import { isSitePath, handleSite, safeReturnPath } from './site.js';
 import { isSlotFailure, sendAdminAlert } from './alerts.js';
 import {
   isRecapTick,
@@ -1359,19 +1360,30 @@ async function handleTrackSource(request, env) {
   return json({ ok: true });
 }
 
+// JSON from the React app; a plain form POST from the server-rendered pages, which get a
+// 303 back to the page they came from (with ?subscribed=1 or ?subscribe_error=1).
 async function handleSubscribe(request, env) {
-  const { email: rawEmail, buyer_token, source } = await request.json().catch(() => ({}));
+  const isForm = (request.headers.get('Content-Type') || '').includes('application/x-www-form-urlencoded');
+  const body = isForm ? Object.fromEntries(await request.formData()) : await request.json().catch(() => ({}));
+  const { email: rawEmail, buyer_token, source } = body;
+  const fail = (message) => {
+    if (!isForm) return json({ error: message }, 400);
+    return Response.redirect(new URL(`${safeReturnPath(body.return_to)}?subscribe_error=1#signup`, request.url).toString(), 303);
+  };
   const email = normalizeEmail(rawEmail);
-  if (!email) return json({ error: 'Please enter a valid email address' }, 400);
+  if (!email) return fail('Please enter a valid email address');
   if (buyer_token !== undefined && (typeof buyer_token !== 'string' || buyer_token.length > 64)) {
-    return json({ error: 'invalid buyer_token' }, 400);
+    return fail('invalid buyer_token');
   }
   if (source !== undefined && (typeof source !== 'string' || !/^[a-z0-9_-]{1,32}$/.test(source))) {
-    return json({ error: 'invalid source' }, 400);
+    return fail('invalid source');
   }
   await insertEmailSignup(env.DB, { email, buyerToken: buyer_token, source });
   // Signing up again is an explicit opt back in after an earlier unsubscribe.
   await env.DB.prepare('DELETE FROM email_unsubscribes WHERE email = ?').bind(email).run();
+  if (isForm) {
+    return Response.redirect(new URL(`${safeReturnPath(body.return_to)}?subscribed=1#signup`, request.url).toString(), 303);
+  }
   return json({ ok: true });
 }
 
@@ -1650,6 +1662,10 @@ export default {
       const deleteMatch = pathname.match(/^\/api\/admin\/picks\/(\d+)$/);
       if (deleteMatch && request.method === 'DELETE') {
         return await handleAdminDeletePick(request, env, Number(deleteMatch[1]));
+      }
+
+      if (isSitePath(pathname) && request.method === 'GET') {
+        return await handleSite(request, env);
       }
 
       if (!pathname.startsWith('/api/')) {

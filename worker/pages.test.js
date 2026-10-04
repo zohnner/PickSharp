@@ -1,0 +1,73 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { escapeHtml, fmtAmerican, signupSource, signupForm, renderGamePage, renderOddsIndex } from './pages.js';
+
+const side = (o) => ({ outcome: 'Cincinnati Bengals', point: -2.5, best_price: 2.1, best_book: 'fanduel', worst_price: 1.87, worst_book: 'draftkings', books: 2, fair_prob: 0.5, is_edge: false, ...o });
+const game = {
+  event_id: 'e1', sport: 'americanfootball_nfl', game: 'Jacksonville Jaguars @ Cincinnati Bengals',
+  home_team: 'Cincinnati Bengals', away_team: 'Jacksonville Jaguars', commence_time: '2026-10-04T17:00:00Z',
+  slug: 'jacksonville-jaguars-at-cincinnati-bengals-2026-10-04',
+  markets: {
+    spreads: [side({ is_edge: true }), side({ outcome: 'Jacksonville Jaguars', point: 2.5, best_price: 1.9, best_book: 'draftkings', worst_price: 1.8, worst_book: 'fanduel' })],
+    totals: [side({ outcome: 'Over', point: 47.5, best_price: 1.93, best_book: 'draftkings', fair_prob: 0.5236 })],
+  },
+};
+const BEFORE = Date.parse('2026-10-02T17:00:00Z');
+const AFTER = Date.parse('2026-10-04T21:00:00Z');
+const base = { game, takenAt: '2026-10-02T16:01:00.000Z', source: 'game_page', siteUrl: 'https://wepicksharp.com' };
+
+test('escaping and odds formatting', () => {
+  assert.equal(escapeHtml(`<a href="x">'&`), '&lt;a href=&quot;x&quot;&gt;&#39;&amp;');
+  assert.equal(fmtAmerican(2.1), '+110');
+  assert.equal(fmtAmerican(1.87), '-115');
+  assert.equal(fmtAmerican(null), '—');
+});
+
+test('signup source takes a valid ?src, otherwise the page default', () => {
+  assert.equal(signupSource('x_reply', 'game_page'), 'x_reply');
+  assert.equal(signupSource('<script>', 'game_page'), 'game_page');
+  assert.equal(signupSource(null, 'tool'), 'tool');
+});
+
+test('signup form posts the source and return path, and thanks a subscriber instead', () => {
+  const f = signupForm({ source: 'x_reply', returnTo: '/odds', cta: 'Get edges' });
+  assert.match(f, /method="post" action="\/api\/subscribe"/);
+  assert.match(f, /name="source" value="x_reply"/);
+  assert.match(f, /name="return_to" value="\/odds"/);
+  assert.match(signupForm({ source: 'tool', returnTo: '/', subscribed: true }), /on the list/);
+  assert.match(signupForm({ source: 'tool', returnTo: '/', error: true, cta: 'x' }), /didn't look right/);
+});
+
+test('game page before kickoff: title, prices, fair price, and edge sides hidden behind the teaser', () => {
+  const html = renderGamePage({ ...base, nowMs: BEFORE });
+  assert.match(html, /<title>Jacksonville Jaguars vs Cincinnati Bengals odds: best line &amp; fair price \(Oct 4\)<\/title>/);
+  assert.match(html, /rel="canonical" href="https:\/\/wepicksharp.com\/odds\/nfl\/jacksonville-jaguars-at-cincinnati-bengals-2026-10-04"/);
+  assert.match(html, /Prices as of 12:01 PM ET/);
+  assert.match(html, /Jacksonville Jaguars \+2.5/);
+  assert.match(html, /-111 <span class="book">DraftKings<\/span>/);
+  // The edge side shows the teaser, never its price.
+  assert.match(html, /Edge found on this side/);
+  assert.doesNotMatch(html, /\+110 <span class="book">FanDuel/);
+  assert.match(html, /1-800-GAMBLER/);
+});
+
+test('game page after kickoff reveals prices and our logged edges with results', () => {
+  const revealed = [{ selection: 'Cincinnati Bengals -2.5', book: 'FanDuel', odds: 110, ev: 0.05, grade: 'win', clv: 0.021, clvEstimated: false }];
+  const html = renderGamePage({ ...base, nowMs: AFTER, revealed, score: '17-24' });
+  assert.doesNotMatch(html, /Edge found on this side/);
+  assert.match(html, /\+110 <span class="book">FanDuel/);
+  assert.match(html, /Final: Jacksonville Jaguars 17, Cincinnati Bengals 24/);
+  assert.match(html, /Cincinnati Bengals -2.5 at FanDuel \+110 · 5.0% edge · WIN · CLV \+2.1%/);
+});
+
+test('team names from the feed are escaped', () => {
+  const evil = { ...game, away_team: '<img src=x>', game: '<img src=x> @ Cincinnati Bengals' };
+  assert.doesNotMatch(renderGamePage({ ...base, game: evil, nowMs: BEFORE }), /<img src=x>/);
+});
+
+test('odds index lists upcoming games by sport and counts today\'s edges', () => {
+  const html = renderOddsIndex({ games: [game], takenAt: base.takenAt, nowMs: BEFORE, source: 'odds_index', siteUrl: base.siteUrl });
+  assert.match(html, /href="\/odds\/nfl\/jacksonville-jaguars-at-cincinnati-bengals-2026-10-04"/);
+  assert.match(html, /<h2>NFL<\/h2>/);
+  assert.match(html, /1 edge found today/);
+});

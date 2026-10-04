@@ -12,7 +12,7 @@ custom_domain = true
 [assets]
 directory = "./dist/"
 binding = "ASSETS"
-run_worker_first = ["/api/*"]
+run_worker_first = ["/api/*", "/odds", "/odds/*", "/tools/*", "/sitemap.xml", "/robots.txt"]
 not_found_handling = "single-page-application"
 
 [[d1_databases]]
@@ -32,6 +32,9 @@ binding = "AI"
 SUPABASE_URL = "https://xnubjcrvkjxhtbkgfkaz.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_0pE2OkqdMUv2Pr0WppR_nw_8tfIMhuG"
 PUBLIC_SITE_URL = "https://wepicksharp.com"
+# Cloudflare Web Analytics token for the server-rendered /odds and /tools pages. Empty
+# leaves the beacon off. Public by design (it ships in page HTML), so it's a var, not a secret.
+CF_ANALYTICS_TOKEN = ""
 ADMIN_EMAILS = "zohnwheeler@gmail.com"
 POSTING_PAUSED = "false"
 AFFILIATE_LINK = "https://ak.draftkings.com"
