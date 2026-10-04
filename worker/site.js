@@ -1,8 +1,8 @@
 // I/O for the public pages: reads odds_snapshots (and, after kickoff, the game's logged
 // edges), then hands plain data to pages.js. Responses are cached for 5 minutes at the edge,
 // which keeps crawler traffic off D1 and inside the CPU budget.
-import { renderGamePage, renderOddsIndex, signupSource } from './pages.js';
-import { sportFromPath } from './oddsSnapshot.js';
+import { renderGamePage, renderOddsIndex, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt, signupSource } from './pages.js';
+import { etIsoDate, sportFromPath, sportPath } from './oddsSnapshot.js';
 import { buildRecord } from './record.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +101,29 @@ export async function handleSite(request, env, nowMs = Date.now()) {
     const started = Date.parse(found.game.commence_time) <= nowMs;
     const reveal = started ? await loadReveal(env.DB, found.game, nowMs) : { revealed: [], score: null };
     return html(renderGamePage({ ...common, ...found, ...reveal, nowMs, source: signupSource(src, 'game_page') }));
+  }
+
+  const TOOLS = { '/tools/no-vig-calculator': renderNoVigCalculator, '/tools/ev-calculator': renderEvCalculator };
+  if (TOOLS[pathname]) return html(TOOLS[pathname]({ ...common, source: signupSource(src, 'tool') }));
+
+  if (pathname === '/robots.txt') {
+    return new Response(robotsTxt(siteUrl), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+  }
+
+  // The coming week's games (the latest snapshot per sport) plus the static pages. Past game
+  // pages stay reachable; parsing 14 days of snapshots here would risk the CPU limit.
+  if (pathname === '/sitemap.xml') {
+    const { games, takenAt } = await loadLatestGames(env.DB);
+    const today = takenAt ? etIsoDate(takenAt) : undefined;
+    const entries = [
+      { path: '/' },
+      { path: '/odds', lastmod: today },
+      { path: '/tools/no-vig-calculator' },
+      { path: '/tools/ev-calculator' },
+      { path: '/record', lastmod: today },
+      ...games.map((g) => ({ path: `/odds/${sportPath(g.sport)}/${g.slug}`, lastmod: today })),
+    ];
+    return new Response(renderSitemap(siteUrl, entries), { headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
   }
 
   return html('<h1>Not found</h1>', 404);

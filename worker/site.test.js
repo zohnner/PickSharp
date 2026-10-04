@@ -53,3 +53,18 @@ test('odds index renders the latest snapshot', async () => {
   assert.equal(res.status, 200);
   assert.match(await res.text(), /jacksonville-jaguars-at-cincinnati-bengals-2026-10-04/);
 });
+
+test('tools, sitemap and robots are served', async () => {
+  const e = env({ 'FROM odds_snapshots': [snapRow] });
+  assert.equal((await get('/tools/no-vig-calculator', e)).status, 200);
+  assert.equal((await get('/tools/ev-calculator', e)).status, 200);
+  assert.equal((await get('/tools/nope', e)).status, 404);
+  const sm = await get('/sitemap.xml', e);
+  assert.match(sm.headers.get('Content-Type'), /application\/xml/);
+  const xml = await sm.text();
+  assert.match(xml, /<loc>https:\/\/wepicksharp.com\/<\/loc>/);
+  assert.match(xml, /\/odds\/nfl\/jacksonville-jaguars-at-cincinnati-bengals-2026-10-04/);
+  assert.match(xml, /\/record/);
+  const robots = await get('/robots.txt', e);
+  assert.match(robots.headers.get('Content-Type'), /text\/plain/);
+});

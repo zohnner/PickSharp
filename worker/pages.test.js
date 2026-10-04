@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { escapeHtml, fmtAmerican, signupSource, signupForm, renderGamePage, renderOddsIndex } from './pages.js';
+import { CALC_JS, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt } from './pages.js';
+import { shinFairProbs } from './devig.js';
 
 const side = (o) => ({ outcome: 'Cincinnati Bengals', point: -2.5, best_price: 2.1, best_book: 'fanduel', worst_price: 1.87, worst_book: 'draftkings', books: 2, fair_prob: 0.5, is_edge: false, ...o });
 const game = {
@@ -70,4 +72,38 @@ test('odds index lists upcoming games by sport and counts today\'s edges', () =>
   assert.match(html, /href="\/odds\/nfl\/jacksonville-jaguars-at-cincinnati-bengals-2026-10-04"/);
   assert.match(html, /<h2>NFL<\/h2>/);
   assert.match(html, /1 edge found today/);
+});
+
+const calc = new Function(`${CALC_JS}; return { toDecimal, toAmerican, shinFair };`)();
+
+test('the browser calculator math matches the engine', () => {
+  assert.equal(calc.toDecimal(-110), 1 + 100 / 110);
+  assert.equal(calc.toDecimal(150), 2.5);
+  assert.equal(calc.toAmerican(2.5), 150);
+  assert.equal(calc.toAmerican(1.5), -200);
+  for (const pair of [[1.91, 1.91], [1.5, 2.7], [1.2, 5.5], [3.2, 1.38]]) {
+    const js = calc.shinFair(pair);
+    const engine = shinFairProbs(pair);
+    assert.ok(Math.abs(js[0] - engine[0]) < 1e-9 && Math.abs(js[1] - engine[1]) < 1e-9, String(pair));
+  }
+  assert.equal(calc.shinFair([1.9, 2.2]), null); // no margin to remove
+});
+
+test('calculator pages carry the script, a how-to, and the signup form', () => {
+  const nv = renderNoVigCalculator({ source: 'tool', siteUrl: 'https://wepicksharp.com' });
+  assert.match(nv, /<title>No-vig fair odds calculator/);
+  assert.match(nv, /function shinFair/);
+  assert.match(nv, /name="source" value="tool"/);
+  const ev = renderEvCalculator({ source: 'tool', siteUrl: 'https://wepicksharp.com' });
+  assert.match(ev, /<title>Expected value \(EV\) betting calculator/);
+});
+
+test('sitemap and robots', () => {
+  const xml = renderSitemap('https://wepicksharp.com', [{ path: '/odds', lastmod: '2026-10-02' }, { path: '/tools/ev-calculator' }]);
+  assert.match(xml, /<loc>https:\/\/wepicksharp.com\/odds<\/loc><lastmod>2026-10-02<\/lastmod>/);
+  assert.match(xml, /<loc>https:\/\/wepicksharp.com\/tools\/ev-calculator<\/loc>/);
+  const robots = robotsTxt('https://wepicksharp.com');
+  assert.match(robots, /Disallow: \/api\//);
+  assert.match(robots, /Disallow: \/admin/);
+  assert.match(robots, /Sitemap: https:\/\/wepicksharp.com\/sitemap.xml/);
 });

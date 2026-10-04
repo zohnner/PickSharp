@@ -152,3 +152,83 @@ ${sections || '<p>No upcoming games in today\'s scan.</p>'}`;
     analyticsToken,
   });
 }
+
+// Browser copy of the engine's math (devig.js shinFairProbs). pages.test.js checks the two
+// agree, so the calculator never shows a different fair price than the edges use.
+export const CALC_JS = `
+function toDecimal(a){a=Number(a);if(!isFinite(a)||(a>-100&&a<100))return null;return a>0?1+a/100:1+100/-a}
+function toAmerican(d){if(!(d>1))return null;return d>=2?Math.round((d-1)*100):-Math.round(100/(d-1))}
+function shinFair(prices){
+  if(!prices||prices.length!==2||prices.some(function(p){return !(p>1)}))return null;
+  var x=[1/prices[0],1/prices[1]],s=x[0]+x[1];if(s<=1)return null;
+  function at(z){return x.map(function(v){return(Math.sqrt(z*z+4*(1-z)*v*v/s)-z)/(2*(1-z))})}
+  var lo=0,hi=0.999;for(var i=0;i<100;i++){var m=(lo+hi)/2;if(m===lo||m===hi)break;var p=at(m);if(p[0]+p[1]>1)lo=m;else hi=m}
+  var r=at(lo),t=r[0]+r[1];if(Math.abs(t-1)>1e-9)return null;return[r[0]/t,r[1]/t]}
+function fmtA(a){return a==null?'—':(a>0?'+'+a:String(a))}`;
+
+const NO_VIG_UI = `
+function run(){var a=toDecimal(document.getElementById('a').value),b=toDecimal(document.getElementById('b').value),out=document.getElementById('out');
+if(!a||!b){out.textContent='Enter both sides as American odds, e.g. -110 and -110.';return}
+var f=shinFair([a,b]);if(!f){out.textContent='These prices have no margin to remove.';return}
+var margin=(1/a+1/b-1)*100;
+out.textContent='Fair odds: '+fmtA(toAmerican(1/f[0]))+' / '+fmtA(toAmerican(1/f[1]))+' · Win chance: '+(f[0]*100).toFixed(1)+'% / '+(f[1]*100).toFixed(1)+'% · Bookmaker margin: '+margin.toFixed(2)+'%'}
+document.getElementById('calc').addEventListener('input',run);run();`;
+
+const EV_UI = `
+function run(){var p=toDecimal(document.getElementById('price').value),f=toDecimal(document.getElementById('fair').value),out=document.getElementById('out');
+if(!p||!f){out.textContent='Enter your odds and the fair odds, e.g. +105 and -102.';return}
+var ev=(p/f-1)*100;out.textContent='Expected value: '+(ev>=0?'+':'')+ev.toFixed(2)+'% per bet'+(ev>0?' (a +EV bet)':'')}
+document.getElementById('calc').addEventListener('input',run);run();`;
+
+// opts: { source, subscribed?, error?, siteUrl, analyticsToken? }
+export function renderNoVigCalculator({ source, subscribed, error, siteUrl, analyticsToken }) {
+  const body = `<h1>No-vig fair odds calculator</h1>
+<p>Enter both sides of a two-way bet (spread, total or moneyline) in American odds. The calculator removes the bookmaker's margin (the "vig") and shows the fair odds and each side's true win chance.</p>
+<form class="calc" id="calc" onsubmit="return false">
+<label for="a">Side A odds</label><input id="a" inputmode="numeric" value="-110">
+<label for="b">Side B odds</label><input id="b" inputmode="numeric" value="-110">
+<output id="out"></output></form>
+<h2>How it works</h2>
+<p>A book's two prices add up to more than 100% implied probability; the excess is its margin. We remove it with the Shin method, which accounts for books shading longshots more than favorites. It's the same method PickSharp uses on Pinnacle's lines to find edges: when a US book offers a better price than the fair price, the bet is +EV.</p>
+<p>Next: check a price against fair with the <a href="/tools/ev-calculator">EV calculator</a>, or see <a href="/odds">today's fair prices for every game</a>.</p>
+${signupForm({ source, returnTo: '/tools/no-vig-calculator', subscribed, error, cta: 'Get the bets that beat the fair price, free by email.' })}
+<script>${CALC_JS}${NO_VIG_UI}</script>`;
+  return layout({
+    title: 'No-vig fair odds calculator (remove the vig)',
+    description: 'Free no-vig calculator: remove the bookmaker margin from any two-way line and get the fair odds and true win probability.',
+    canonical: `${siteUrl}/tools/no-vig-calculator`,
+    body,
+    analyticsToken,
+  });
+}
+
+export function renderEvCalculator({ source, subscribed, error, siteUrl, analyticsToken }) {
+  const body = `<h1>Expected value (EV) betting calculator</h1>
+<p>Enter the odds you can bet and the fair odds for the same side. The calculator shows your expected profit per bet as a percentage of the stake.</p>
+<form class="calc" id="calc" onsubmit="return false">
+<label for="price">Your odds</label><input id="price" inputmode="numeric" value="+105">
+<label for="fair">Fair odds</label><input id="fair" inputmode="numeric" value="-102">
+<output id="out"></output></form>
+<h2>Where the fair odds come from</h2>
+<p>Use the <a href="/tools/no-vig-calculator">no-vig calculator</a> on a sharp book's line (Pinnacle is the usual reference), or take the fair price from <a href="/odds">our daily odds pages</a>. A bet is +EV when your price pays more than the fair price implies.</p>
+${signupForm({ source, returnTo: '/tools/ev-calculator', subscribed, error, cta: 'Get today\'s +EV bets free by email.' })}
+<script>${CALC_JS}${EV_UI}</script>`;
+  return layout({
+    title: 'Expected value (EV) betting calculator',
+    description: 'Free EV calculator for sports bets: compare your odds to the fair odds and see your expected value per bet.',
+    canonical: `${siteUrl}/tools/ev-calculator`,
+    body,
+    analyticsToken,
+  });
+}
+
+export function renderSitemap(siteUrl, entries) {
+  const urls = entries
+    .map((e) => `<url><loc>${escapeHtml(siteUrl + e.path)}</loc>${e.lastmod ? `<lastmod>${escapeHtml(e.lastmod)}</lastmod>` : ''}</url>`)
+    .join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+}
+
+export function robotsTxt(siteUrl) {
+  return `User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /dashboard\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\n`;
+}
