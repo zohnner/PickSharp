@@ -243,3 +243,21 @@ CREATE TABLE IF NOT EXISTS milestones (
   key TEXT PRIMARY KEY,
   reached_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Daily odds board per sport, written by the 16:01 UTC discovery scan (oddsSnapshot.js).
+-- payload: JSON array of games (buildSnapshot). Rows older than 14 days are pruned.
+CREATE TABLE IF NOT EXISTS odds_snapshots (
+  sport TEXT NOT NULL,
+  snapshot_date TEXT NOT NULL,          -- ET date of the scan, YYYY-MM-DD
+  taken_at TEXT NOT NULL,               -- ISO time of the scan
+  payload TEXT NOT NULL,
+  PRIMARY KEY (sport, snapshot_date)
+);
+
+-- One price-gap post per ET day (priceGaps.js). status: NULL -> sending -> posted.
+CREATE TABLE IF NOT EXISTS price_gap_posts (
+  date TEXT PRIMARY KEY,
+  status TEXT,
+  tweet_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

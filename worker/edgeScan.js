@@ -8,6 +8,7 @@ import {
 } from './edgeSchedule.js';
 import { edgeSportsAt, fetchSharpComparison, getRemainingCredits } from './oddsApi.js';
 import { CORE_EDGE_SQL, rankForLogging } from './coreEdge.js';
+import { buildSnapshot, etIsoDate } from './oddsSnapshot.js';
 
 // D1 allows 50 queries per invocation on the free plan: 15 upserts + 15 close updates +
 // the handful of selects/inserts around them stays under it, leaving headroom for
@@ -43,6 +44,30 @@ function recordScan(db, { kind, sports, ran, reason = null, remaining = null, fo
     )
     .bind(kind, sports.join(','), ran, reason, remaining, found)
     .run();
+}
+
+const SNAPSHOT_KEEP_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Discovery only: the day's odds board for the public pages (one row per sport, plus the
+// prune). Never throws -- a failure here must not cost the scan its edges.
+async function writeSnapshot(db, events, scheduledMs) {
+  try {
+    const bySport = new Map();
+    for (const g of buildSnapshot(events, scheduledMs)) {
+      bySport.set(g.sport, [...(bySport.get(g.sport) || []), g]);
+    }
+    const date = etIsoDate(scheduledMs);
+    const takenAt = new Date(scheduledMs).toISOString();
+    const stmts = [...bySport].map(([sport, games]) =>
+      db
+        .prepare('INSERT OR REPLACE INTO odds_snapshots (sport, snapshot_date, taken_at, payload) VALUES (?, ?, ?, ?)')
+        .bind(sport, date, takenAt, JSON.stringify(games))
+    );
+    stmts.push(db.prepare('DELETE FROM odds_snapshots WHERE snapshot_date < ?').bind(etIsoDate(scheduledMs - SNAPSHOT_KEEP_MS)));
+    await db.batch(stmts);
+  } catch (err) {
+    console.error('[edges] odds snapshot write failed:', err.message);
+  }
 }
 
 export async function runEdgeScan(env, scheduledMs, deps = {}) {
@@ -172,6 +197,7 @@ export async function runEdgeScan(env, scheduledMs, deps = {}) {
     throw err;
   }
 
+  if (kind === 'discovery') await writeSnapshot(db, events, scheduledMs);
   await recordScan(db, { kind, sports, ran: 1, remaining, found: found.length });
   console.log(`[edges] ${kind} scan: ${found.length} edges, ${closes.length} closes updated`);
   return { ran: true, kind, found: found.length, closesUpdated: closes.length };

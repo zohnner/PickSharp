@@ -340,3 +340,29 @@ test('discovery adds the NBA from EDGE_NBA_START', async () => {
   await runEdgeScan({ DB: fakeDb(), EDGE_NBA_START: '2026-10-20' }, Date.parse('2026-10-20T16:01:00Z'), { ...deps(400), fetchSharpComparison: fetch });
   assert.deepEqual(scanned, ['americanfootball_nfl', 'americanfootball_ncaaf', 'basketball_nba']);
 });
+
+test('discovery writes the day\'s odds snapshot per sport and prunes old ones; closing scans do not', async () => {
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  await runEdgeScan({ DB: db }, DISCOVERY, deps(400));
+  const snap = db.log.filter((s) => s.sql.includes('INTO odds_snapshots'));
+  assert.equal(snap.length, 1);
+  assert.deepEqual(snap[0].args.slice(0, 2), ['americanfootball_nfl', '2026-09-24']);
+  assert.equal(JSON.parse(snap[0].args[3])[0].slug, 'atlanta-falcons-at-green-bay-packers-2026-09-24');
+  const prune = db.log.find((s) => s.sql.includes('DELETE FROM odds_snapshots'));
+  assert.deepEqual(prune.args, ['2026-09-10']);
+
+  const closing = fakeDb({ 'SELECT DISTINCT sport': [{ sport: 'americanfootball_nfl', market: 'h2h' }], 'FROM edges WHERE commence_time >': [] });
+  await runEdgeScan({ DB: closing }, Date.parse('2026-09-25T00:01:00Z'), deps(400));
+  assert.equal(closing.log.some((s) => s.sql.includes('odds_snapshots')), false);
+});
+
+test('a snapshot write failure does not fail the discovery scan', async () => {
+  const db = fakeDb({ 'FROM edges WHERE commence_time >': [] });
+  const batch = db.batch;
+  db.batch = async (stmts) => {
+    if (stmts.some((s) => s.sql.includes('odds_snapshots'))) throw new Error('D1 down');
+    return batch(stmts);
+  };
+  const r = await runEdgeScan({ DB: db }, DISCOVERY, deps(400));
+  assert.equal(r.ran, true);
+});

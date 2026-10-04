@@ -18,14 +18,17 @@ const ESPN_EXTRA = { americanfootball_ncaaf: '&groups=80&limit=300' };
 export const ESPN_FETCH_INIT = { headers: { 'User-Agent': 'curl/8.5.0' } };
 
 // ESPN files games under their US Eastern date, so a 00:15 UTC Friday kickoff is on
-// Thursday's scoreboard.
+// Thursday's scoreboard. One shared formatter: building one costs ~0.1ms, which adds up
+// across a full slate inside the 10ms CPU limit.
+const ET_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 export function etDate(isoOrMs) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(isoOrMs));
+  const parts = ET_DATE_FORMAT.formatToParts(new Date(isoOrMs));
   const get = (t) => parts.find((p) => p.type === t).value;
   return `${get('year')}${get('month')}${get('day')}`;
 }

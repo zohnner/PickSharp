@@ -12,14 +12,22 @@ export function shinFairProbs(prices) {
 
   const probsAt = (z) =>
     implied.map((x) => (Math.sqrt(z * z + (4 * (1 - z) * x * x) / booksum) - z) / (2 * (1 - z)));
+  const [x0, x1] = implied;
+  const sumAt = (z) =>
+    (Math.sqrt(z * z + (4 * (1 - z) * x0 * x0) / booksum) +
+      Math.sqrt(z * z + (4 * (1 - z) * x1 * x1) / booksum) -
+      2 * z) /
+    (2 * (1 - z));
 
   // Sum of probsAt(z) falls monotonically from sqrt(booksum) > 1 at z = 0; bisect for sum = 1.
+  // Stops once the interval can't shrink further (~50 steps): this runs for every market
+  // in a scan, inside the 10ms CPU limit.
   let lo = 0;
   let hi = 0.999;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
-    const [a, b] = probsAt(mid);
-    if (a + b > 1) lo = mid;
+    if (mid === lo || mid === hi) break;
+    if (sumAt(mid) > 1) lo = mid;
     else hi = mid;
   }
   const [a, b] = probsAt(lo);
