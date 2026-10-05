@@ -139,6 +139,11 @@ export async function getUsage() {
   return request('/admin/usage', { headers });
 }
 
+export async function getReplyKit() {
+  const headers = await authHeaders();
+  return request('/admin/reply-kit', { headers });
+}
+
 export async function getRecord() {
   return request('/record');
 }

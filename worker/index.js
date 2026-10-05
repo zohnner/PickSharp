@@ -49,6 +49,7 @@ import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
 import { isSitePath, handleSite, safeReturnPath, loadLatestGames } from './site.js';
 import { isPriceGapTick, selectPriceGaps, composePriceGapTweet } from './priceGaps.js';
+import { buildReplyKit } from './replyKit.js';
 import { isSlotFailure, sendAdminAlert } from './alerts.js';
 import {
   isRecapTick,
@@ -923,6 +924,12 @@ async function handleAffiliateGo(request, env) {
   return Response.redirect(destination, 302);
 }
 
+async function handleAdminReplyKit(request, env) {
+  if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
+  const { games } = await loadLatestGames(env.DB);
+  return json({ games: buildReplyKit(games, env.PUBLIC_SITE_URL, Date.now()) });
+}
+
 async function handleAdminFunnel(request, env) {
   if (!(await requireAdmin(request, env))) return json({ error: 'Unauthorized' }, 401);
   const summary = await getFunnelSummary(env.DB);
@@ -1639,6 +1646,9 @@ export default {
       }
       if (pathname === '/api/admin/test-email' && request.method === 'POST') {
         return await handleAdminTestEmail(request, env);
+      }
+      if (pathname === '/api/admin/reply-kit' && request.method === 'GET') {
+        return await handleAdminReplyKit(request, env);
       }
       if (pathname === '/api/admin/funnel' && request.method === 'GET') {
         return await handleAdminFunnel(request, env);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, getLaunchGate, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
+import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, getReplyKit, getLaunchGate, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
@@ -52,6 +52,8 @@ export default function AdminPanel({ session, loadingSession }) {
   const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [usage, setUsage] = useState(null);
   const [launch, setLaunch] = useState(null);
+  const [replyKit, setReplyKit] = useState(null);
+  const [copied, setCopied] = useState(null);
   const [gradeStatus, setGradeStatus] = useState(null);
   const [recapStatus, setRecapStatus] = useState(null);
   const [recapTweet, setRecapTweet] = useState(null);
@@ -89,6 +91,9 @@ export default function AdminPanel({ session, loadingSession }) {
         .catch(() => {
           // Non-critical: the rest of the admin panel still works without it.
         });
+      getReplyKit()
+        .then((r) => setReplyKit(r.games))
+        .catch(() => setReplyKit([]));
       getUsage()
         .then((data) => setUsage(data.services || []))
         .catch(() => {
@@ -508,6 +513,35 @@ export default function AdminPanel({ session, loadingSession }) {
             {testEmailStatus && <span className="text-xs text-neutral-400">{testEmailStatus}</span>}
           </div>
         </div>
+      )}
+
+      {replyKit && (
+        <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <h2 className="text-sm font-semibold text-white">Reply kit</h2>
+          <p className="mt-1 text-xs text-neutral-500">
+            Paste by hand from the X app into game-day threads (free). Number first, ~15 a session, never the same line twice. See docs/reply-kit.md.
+          </p>
+          {replyKit.length === 0 && <p className="mt-3 text-sm text-neutral-400">No games in the next 36 hours.</p>}
+          {replyKit.map((g) => (
+            <div key={g.url} className="mt-4">
+              <p className="text-sm font-medium text-white">
+                {g.game} <span className="text-neutral-500">· {formatGameTime(g.kickoff)}</span>
+              </p>
+              {g.lines.map((line) => (
+                <div key={line} className="mt-2 flex items-start gap-2">
+                  <p className="flex-1 text-sm text-neutral-300">{line}</p>
+                  <button
+                    type="button"
+                    className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+                    onClick={() => navigator.clipboard.writeText(line).then(() => setCopied(line))}
+                  >
+                    {copied === line ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </section>
       )}
 
       {launch && (
