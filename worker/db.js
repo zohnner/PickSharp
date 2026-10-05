@@ -90,12 +90,26 @@ export async function getFunnelSummary(db) {
     .first()
     .catch(() => ({ total: 0, today: 0 }));
 
+  // First-touch channel of each signup (pages pass ?src= through to the form), so the
+  // owner can see which distribution channel is worth the time.
+  const { results: bySource } = await db
+    .prepare(
+      `SELECT source,
+              SUM(CASE WHEN created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS last_7,
+              COUNT(*) AS last_28
+       FROM email_signups WHERE created_at >= datetime('now', '-28 days')
+       GROUP BY source ORDER BY last_28 DESC`
+    )
+    .all()
+    .catch(() => ({ results: [] }));
+
   const summary = {
     checkout_started: 0,
     affiliate_click: 0,
     checkout_completed: unlocks.count,
     email_signups_today: signups.today || 0,
     email_signups_total: signups.total || 0,
+    signups_by_source: bySource.map((r) => ({ source: r.source || 'unknown', last_7: r.last_7, last_28: r.last_28 })),
   };
   for (const row of eventCounts) {
     summary[row.event_type] = row.count;

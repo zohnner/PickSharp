@@ -479,6 +479,18 @@ export default function AdminPanel({ session, loadingSession }) {
               <p className="text-xs text-neutral-500">Email signups ({funnel.email_signups_total ?? 0} total)</p>
             </div>
           </div>
+          {funnel.signups_by_source?.length > 0 && (
+            <table className="mt-4 w-full text-left text-sm">
+              <thead className="text-xs text-neutral-500">
+                <tr><th className="py-1">Signups by source</th><th>7 days</th><th>28 days</th></tr>
+              </thead>
+              <tbody className="text-neutral-300">
+                {funnel.signups_by_source.map((r) => (
+                  <tr key={r.source}><td className="py-1">{r.source}</td><td>{r.last_7}</td><td>{r.last_28}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           <p className="mt-3 text-xs text-neutral-500">
             Daily email:{' '}
             {funnel.email_missing_config?.length > 0
