@@ -1,6 +1,7 @@
-// Daily free-pick email via Resend (https://resend.com/docs/api-reference/emails/send-batch-emails).
+// Daily list email via Resend (https://resend.com/docs/api-reference/emails/send-batch-emails).
 // Everything here is off until the owner configures it -- see missingEmailConfig.
 import { logUsage } from './usage.js';
+import { composeEdgeEmail } from './edgeEmail.js';
 
 const RESEND_BATCH_URL = 'https://api.resend.com/emails/batch';
 const RESEND_BATCH_LIMIT = 100;
@@ -143,25 +144,26 @@ export async function sendTestEmail(env, to, pick) {
 
 // Never throws -- called right after a slot's tweet posts, where a failed email must
 // not look like a failed post. Returns a summary object like postSlot does.
-export async function sendDailyEmail(env, pick) {
+// Never throws. Sends one list email per ET day, whichever caller claims the day first.
+// compose(unsubscribeLink, postalAddress) -> { subject, text, html }.
+async function sendOncePerDay(env, compose) {
   if (env.EMAIL_PAUSED === 'true') return { sent: false, reason: 'EMAIL_PAUSED is set' };
   const missing = missingEmailConfig(env);
   if (missing.length > 0) return { sent: false, reason: `not configured: ${missing.join(', ')}` };
-  if (!pick) return { sent: false, reason: 'no pick' };
 
   try {
-    // Claim the day first so a concurrent slot or cron redelivery can't double-send.
+    // Claim the day first so a concurrent caller or cron redelivery can't double-send.
     const claim = await env.DB.prepare(`INSERT OR IGNORE INTO daily_emails (date) VALUES (date('now', '-4 hours'))`).run();
     if (claim.meta.changes === 0) return { sent: false, reason: 'already sent today' };
 
-    const { recipients, delivered, errors } = await sendToList(env, pickComposer(env, pick));
+    const { recipients, delivered, errors } = await sendToList(env, compose);
     if (recipients === 0) {
       await env.DB.prepare(`UPDATE daily_emails SET recipients = 0 WHERE date = date('now', '-4 hours')`).run();
       return { sent: true, recipients: 0 };
     }
 
     if (delivered === 0) {
-      // Nothing went out: release the claim so the day's next slot can retry.
+      // Nothing went out: release the claim so a later run can retry.
       await env.DB.prepare(`DELETE FROM daily_emails WHERE date = date('now', '-4 hours')`).run();
       return { sent: false, reason: `Resend rejected every batch: ${errors.join('; ')}` };
     }
@@ -172,4 +174,22 @@ export async function sendDailyEmail(env, pick) {
   } catch (err) {
     return { sent: false, reason: err.message };
   }
+}
+
+// The old AI free-pick email. Nothing in the pipeline sends it any more -- the daily list
+// email is sendEdgeEmail -- and it goes when the AI pick pipeline retires.
+export async function sendDailyEmail(env, pick) {
+  if (env.EMAIL_PAUSED === 'true') return { sent: false, reason: 'EMAIL_PAUSED is set' };
+  const missing = missingEmailConfig(env);
+  if (missing.length > 0) return { sent: false, reason: `not configured: ${missing.join(', ')}` };
+  if (!pick) return { sent: false, reason: 'no pick' };
+  return sendOncePerDay(env, pickComposer(env, pick));
+}
+
+// Never throws. edges: selectEmailEdges output.
+export async function sendEdgeEmail(env, edges) {
+  if (!edges || edges.length === 0) return { sent: false, reason: 'no new core edges' };
+  return sendOncePerDay(env, (unsubscribeLink, postalAddress) =>
+    composeEdgeEmail(edges, { siteUrl: env.PUBLIC_SITE_URL, unsubscribeLink, postalAddress })
+  );
 }

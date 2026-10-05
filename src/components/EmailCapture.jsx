@@ -41,7 +41,7 @@ export default function EmailCapture({ buyerToken }) {
   if (status === 'done') {
     return (
       <p className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 p-4 text-sm text-neutral-400">
-        ✅ You're on the list — we'll email you the day's free pick.
+        ✅ You're on the list. Each day's edges arrive by email after the noon ET scan.
       </p>
     );
   }
@@ -52,9 +52,11 @@ export default function EmailCapture({ buyerToken }) {
       className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 p-4"
     >
       <label htmlFor="email-capture" className="text-sm font-semibold text-white">
-        Get the free pick in your inbox
+        Get every edge we find in your inbox
       </label>
-      <p className="mt-1 text-xs text-neutral-500">One email on game days. Unsubscribe anytime.</p>
+      <p className="mt-1 text-xs text-neutral-500">
+        One email on days we find edges, free during our public trial. Unsubscribe anytime.
+      </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <input
           id="email-capture"

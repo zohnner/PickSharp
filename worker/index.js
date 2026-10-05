@@ -21,7 +21,8 @@ import {
   insertEmailSignup,
 } from './db.js';
 import { normalizeEmail } from './emailSignup.js';
-import { sendDailyEmail, sendTestEmail, sendToList, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
+import { sendEdgeEmail, sendTestEmail, sendToList, verifyUnsubscribeToken, missingEmailConfig } from './email.js';
+import { selectEmailEdges } from './edgeEmail.js';
 import { priceForConfidence, bundlePrice } from './pricing.js';
 import { createCheckoutSession, retrieveCheckoutSession, verifyStripeSignature, stripeMode, paidSessionPickIds } from './stripe.js';
 import { composeTweet } from './tweetCopy.js';
@@ -535,8 +536,6 @@ async function handleDailyPostCheck(env) {
   await env.DB.prepare(`INSERT INTO daily_posts (date, slot, tweet_id) VALUES (date('now', '-4 hours'), 'manual', ?)`)
     .bind(tweetId)
     .run();
-
-  console.log('[manual] email:', JSON.stringify(await sendDailyEmail(env, freePick)));
 }
 
 // Shared by handlePostSlot and handleVerifySlot: runs grounding (real-game) and
@@ -689,12 +688,7 @@ async function postSlot(env, slot) {
     .bind(slot, tweetId)
     .run();
 
-  // The list gets the same free pick as the tweet, once per day (sendDailyEmail guards
-  // that), from whichever slot posts first.
-  const email = await sendDailyEmail(env, freePick);
-  console.log(`[${slot}] email:`, JSON.stringify(email));
-
-  return { posted: true, tweet_id: tweetId, pick_count: picks.length, email };
+  return { posted: true, tweet_id: tweetId, pick_count: picks.length };
 }
 
 async function handlePostSlot(request, env) {
@@ -1001,6 +995,20 @@ async function runProofCheck(env, nowMs) {
     ]);
   } catch (err) {
     console.error('[proof-check] failed:', err.message);
+  }
+}
+
+// Never throws. Emails the list every core edge the 16:01 scan just found (once per ET day).
+async function runEdgeEmail(env, nowMs) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM edges WHERE first_seen_at >= datetime(?, 'unixepoch', '-1 hour')`
+    )
+      .bind(Math.floor(nowMs / 1000))
+      .all();
+    return await sendEdgeEmail(env, selectEmailEdges(results, nowMs));
+  } catch (err) {
+    return { sent: false, reason: err.message };
   }
 }
 
@@ -1709,6 +1717,7 @@ export default {
       }
       if (isFreeEdgeTick(event.scheduledTime)) {
         ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
+        ctx.waitUntil(runEdgeEmail(env, event.scheduledTime).then((r) => console.log('[edge-email]', JSON.stringify(r))));
       }
       if (isDailyResultsTick(event.scheduledTime)) {
         ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
