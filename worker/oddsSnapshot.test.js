@@ -83,14 +83,17 @@ test('a full Saturday slate builds well inside the CPU budget', () => {
     ...evt, id: `e${i}`, home_team: `Home ${i}`, away_team: `Away ${i}`,
     bookmakers: [evt.bookmakers[0], ...Array.from({ length: 8 }, (_, b) => ({ ...evt.bookmakers[1], key: `book${b}` }))],
   }));
-  // One warm-up run (module and JIT setup happen once per isolate), then the median of five:
-  // node runs test files in parallel, so single wall-clock runs swing with machine load.
+  // One warm-up run (module and JIT setup happen once per isolate), then the fastest of five:
+  // machine load only ever adds wall-clock time, and node runs test files in parallel, so
+  // the minimum is the stable measure. A real slowdown (like a per-call Intl formatter,
+  // ~17ms here) still fails it by a wide margin.
   JSON.stringify(buildSnapshot(games, NOW));
-  const runs = Array.from({ length: 5 }, () => {
-    const t0 = performance.now();
-    JSON.stringify(buildSnapshot(games, NOW));
-    return performance.now() - t0;
-  }).sort((a, b) => a - b);
-  const perRun = runs[2];
+  const perRun = Math.min(
+    ...Array.from({ length: 5 }, () => {
+      const t0 = performance.now();
+      JSON.stringify(buildSnapshot(games, NOW));
+      return performance.now() - t0;
+    })
+  );
   assert.ok(perRun < 5, `buildSnapshot + stringify took ${perRun.toFixed(2)}ms`);
 });
