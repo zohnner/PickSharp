@@ -47,7 +47,8 @@ import { runEdgeScan } from './edgeScan.js';
 import { summarizeEdges, findProofGaps, isProofCheckTick } from './edgeReport.js';
 import { runGrading, isGradingTick } from './gradeGames.js';
 import { buildRecord } from './record.js';
-import { isSitePath, handleSite, safeReturnPath } from './site.js';
+import { isSitePath, handleSite, safeReturnPath, loadLatestGames } from './site.js';
+import { isPriceGapTick, selectPriceGaps, composePriceGapTweet } from './priceGaps.js';
 import { isSlotFailure, sendAdminAlert } from './alerts.js';
 import {
   isRecapTick,
@@ -1012,6 +1013,35 @@ async function runEdgeEmail(env, nowMs) {
   }
 }
 
+// Never throws. Posts the day's biggest same-bet price gaps to X, at most once per ET date.
+async function runPriceGaps(env, nowMs) {
+  try {
+    if (env.POSTING_PAUSED === 'true') return { ran: false, reason: 'posting paused' };
+    const { games } = await loadLatestGames(env.DB);
+    const gaps = selectPriceGaps(games, nowMs);
+    if (gaps.length === 0) return { ran: false, reason: 'no gaps of 15+ cents on games within 36h' };
+
+    const date = etDate(nowMs);
+    await env.DB.prepare('INSERT OR IGNORE INTO price_gap_posts (date) VALUES (?)').bind(date).run();
+    const claim = await env.DB.prepare(`UPDATE price_gap_posts SET status = 'sending' WHERE date = ? AND status IS NULL`)
+      .bind(date)
+      .run();
+    if (claim.meta.changes !== 1) return { ran: false, reason: 'already posted' };
+
+    try {
+      const tweetId = await postTweet(env, composePriceGapTweet(gaps));
+      await env.DB.prepare(`UPDATE price_gap_posts SET status = 'posted', tweet_id = ? WHERE date = ?`).bind(tweetId, date).run();
+      return { ran: true, tweet: tweetId, gaps: gaps.length };
+    } catch (err) {
+      await env.DB.prepare('UPDATE price_gap_posts SET status = NULL WHERE date = ?').bind(date).run();
+      await sendAdminAlert(env, 'price-gaps', 'price-gap tweet failed', [`The price-gap post did not go out: ${err.message}`]);
+      return { ran: false, reason: `failed: ${err.message}` };
+    }
+  } catch (err) {
+    return { ran: false, reason: err.message };
+  }
+}
+
 // Never throws. Posts the day's free edge to X, at most once per Eastern date.
 async function runFreeEdge(env, nowMs) {
   try {
@@ -1718,6 +1748,9 @@ export default {
       if (isFreeEdgeTick(event.scheduledTime)) {
         ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
         ctx.waitUntil(runEdgeEmail(env, event.scheduledTime).then((r) => console.log('[edge-email]', JSON.stringify(r))));
+      }
+      if (isPriceGapTick(event.scheduledTime)) {
+        ctx.waitUntil(runPriceGaps(env, event.scheduledTime).then((r) => console.log('[price-gaps]', JSON.stringify(r))));
       }
       if (isDailyResultsTick(event.scheduledTime)) {
         ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
