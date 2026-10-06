@@ -70,8 +70,9 @@ wrangler dry run confirm it.
 - `src/App.jsx`: the `Landing` import is removed. The `/` route stays only as a safety net that does
   `window.location.replace('/')`, the same pattern as `OddsRedirect`, for any in-app navigation that
   still reaches it.
-- `src/pages/Landing.jsx` is deleted. `EmailCapture` stays if another page still uses it, and is
-  deleted otherwise.
+- `src/pages/Landing.jsx` is deleted, and so is `src/components/EmailCapture.jsx` (Landing is its
+  only user). `subscribeEmail` in `src/lib/api.js` is deleted too if nothing else imports it.
+  `/api/subscribe` itself is unchanged; the Worker form already posts to it.
 - `src/components/Nav.jsx`: every link is a plain `<a>` (full page load). The session-dependent
   Dashboard and Log out links are removed. `Nav` no longer takes `session`.
 - `/index.html` is still served by `ASSETS` as the SPA shell. Nothing links to it; it is left alone.
