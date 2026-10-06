@@ -5,9 +5,9 @@ export default function Footer() {
     <footer className="border-t border-neutral-800 bg-neutral-950">
       <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-neutral-500">
         <p className="mb-2">
-          PickSharp picks are AI-assisted analysis of real market data, plus real picks verified from public
-          accounts on X, for entertainment and informational purposes only. We do not guarantee outcomes.
-          Betting involves risk — never wager more than you can afford to lose.
+          PickSharp compares sportsbook prices with a no-vig fair price, for informational purposes only.
+          Prices move, and a bet priced above fair can still lose; we do not guarantee outcomes. Betting
+          involves risk — never wager more than you can afford to lose.
         </p>
         <p>
           Gambling problem? Call{' '}

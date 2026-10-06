@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import Nav from './components/Nav.jsx';
 import Footer from './components/Footer.jsx';
 import Landing from './pages/Landing.jsx';
-import Picks from './pages/Picks.jsx';
 import Record from './pages/Record.jsx';
 import Auth from './pages/Auth.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -11,6 +10,15 @@ import AdminPanel from './pages/AdminPanel.jsx';
 import Terms from './pages/Terms.jsx';
 import Privacy from './pages/Privacy.jsx';
 import { supabase } from './lib/supabase.js';
+
+// AI picks were retired 2026-10-05. Old /picks links (X bio, past emails) land on the odds
+// pages instead, which the Worker serves, so this has to be a full page load.
+function OddsRedirect() {
+  useEffect(() => {
+    window.location.replace('/odds');
+  }, []);
+  return null;
+}
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -33,7 +41,7 @@ export default function App() {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/picks" element={<Picks />} />
+          <Route path="/picks" element={<OddsRedirect />} />
           <Route path="/record" element={<Record />} />
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />
           <Route path="/dashboard" element={<Dashboard session={session} />} />

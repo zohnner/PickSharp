@@ -19,7 +19,7 @@ function rememberSubscribed() {
   }
 }
 
-export default function EmailCapture({ buyerToken }) {
+export default function EmailCapture({ buyerToken, source }) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState(wasSubscribed() ? 'done' : 'idle');
   const [error, setError] = useState(null);
@@ -29,7 +29,7 @@ export default function EmailCapture({ buyerToken }) {
     setError(null);
     setStatus('sending');
     try {
-      await subscribeEmail(email, buyerToken, 'picks_page');
+      await subscribeEmail(email, buyerToken, source);
       rememberSubscribed();
       setStatus('done');
     } catch (err) {

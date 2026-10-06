@@ -11,7 +11,7 @@ export default function Auth({ session, loadingSession }) {
   const [submitting, setSubmitting] = useState(false);
 
   if (!loadingSession && session) {
-    return <Navigate to="/picks" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   const handleSubmit = async (e) => {
