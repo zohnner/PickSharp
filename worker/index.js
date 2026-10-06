@@ -50,7 +50,7 @@ import { buildRecord } from './record.js';
 import { isSitePath, handleSite, safeReturnPath, loadLatestGames } from './site.js';
 import { isPriceGapTick, selectPriceGaps, composePriceGapTweet } from './priceGaps.js';
 import { buildReplyKit } from './replyKit.js';
-import { isSlotFailure, sendAdminAlert } from './alerts.js';
+import { sendAdminAlert } from './alerts.js';
 import {
   isRecapTick,
   buildWeeklyRecap,
@@ -890,10 +890,6 @@ async function generateForPropsSlot(env) {
   return { inserted: ids.length, ids };
 }
 
-async function generateAndPostPropsSlot(env) {
-  return generateAndPostSlot(env, 'props');
-}
-
 const GENERATION_SLOTS = ['morning', 'midday', 'afternoon', 'evening', 'props'];
 
 async function handleGenerateSlot(request, env) {
@@ -1727,103 +1723,54 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    // Derived from the actual fire time (event.scheduledTime), not a string match against
-    // event.cron -- Cloudflare's cron trigger API doesn't document whether it echoes back
-    // the configured cron expression verbatim or in some normalized form, and a mismatch
-    // there would silently break dispatch. Standard JS Date UTC semantics are unambiguous.
-    const SLOT_HOURS = { 13: 'morning', 17: 'midday', 22: 'evening' };
-    // The 22:15 props slot is off: ESPN (the pick pipeline's free odds source) has no
-    // player props, and per-event props on the Odds API cost credits the edge engine
-    // needs on the 500/mo plan. Its :15 ticks fall through to the safe no-op branch.
-    const fired = new Date(event.scheduledTime);
-    const isGenerationDay = [0, 4, 6].includes(fired.getUTCDay()); // Sun, Thu, Sat
-    const hour = fired.getUTCHours();
-    const minute = fired.getUTCMinutes();
-    if (isGenerationDay && minute === 0 && SLOT_HOURS[hour]) {
-      ctx.waitUntil(generateAndPostSlot(env, SLOT_HOURS[hour]));
-    } else if (isGenerationDay && hour === 12 && minute === 30) {
-      ctx.waitUntil(runDiscovery(env));
-    } else {
-      ctx.waitUntil(handleDailyPostCheck(env));
-      // Edge logger rides the same 5-minute cron (no new trigger -- account-wide cap).
-      // runEdgeScan itself ignores the generation cron's 0/15/30 ticks that also land here.
+    // Tick checks use the actual fire time (event.scheduledTime), not a string match against
+    // event.cron -- Cloudflare doesn't document whether it echoes the cron expression back
+    // verbatim. AI pick generation/posting and xAI discovery no longer run on a schedule
+    // (retired 2026-10-05: no measurable edge, and touting contradicts the CLV product);
+    // the admin routes can still trigger them by hand.
+    ctx.waitUntil(handleDailyPostCheck(env));
+    // Edge logger rides the same 5-minute cron (no new trigger -- account-wide cap).
+    ctx.waitUntil(
+      runEdgeScan(env, event.scheduledTime).catch((err) =>
+        console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
+      )
+    );
+    if (isFreeEdgeResultTick(event.scheduledTime)) {
+      ctx.waitUntil(runFreeEdgeResult(env, event.scheduledTime).then((r) => console.log('[free-edge-result]', JSON.stringify(r))));
+    }
+    if (isFreeEdgeTick(event.scheduledTime)) {
+      ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
+      ctx.waitUntil(runEdgeEmail(env, event.scheduledTime).then((r) => console.log('[edge-email]', JSON.stringify(r))));
+    }
+    if (isPriceGapTick(event.scheduledTime)) {
+      ctx.waitUntil(runPriceGaps(env, event.scheduledTime).then((r) => console.log('[price-gaps]', JSON.stringify(r))));
+    }
+    if (isDailyResultsTick(event.scheduledTime)) {
+      ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
+    }
+    if (isRecapTick(event.scheduledTime)) {
+      ctx.waitUntil(runWeeklyRecap(env, event.scheduledTime).then((r) => console.log('[recap]', JSON.stringify(r))));
+    }
+    if (isGradingTick(event.scheduledTime)) {
       ctx.waitUntil(
-        runEdgeScan(env, event.scheduledTime).catch((err) =>
-          console.error('[edges] runEdgeScan threw unexpectedly:', err.message)
-        )
+        runGrading(env, event.scheduledTime)
+          .then(async (r) => {
+            if (r.checked > 0) console.log('[grading]', JSON.stringify(r));
+            if (r.errors) {
+              await sendAdminAlert(env, 'grading', 'edge grading hit errors', [
+                'Overnight grading could not fetch some ESPN scoreboards:',
+                ...r.errors,
+                '',
+                'Affected games stay ungraded and are retried on later runs.',
+              ]);
+            }
+          })
+          .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
+          // After this tick's grading, so a game graded at 10:56 isn't reported as a gap.
+          .then(() => isProofCheckTick(event.scheduledTime) && runProofCheck(env, event.scheduledTime))
+          .then(() => isProofCheckTick(event.scheduledTime) && runUsageCheck(env, event.scheduledTime))
+          .then(() => isProofCheckTick(event.scheduledTime) && runLaunchCheck(env, event.scheduledTime))
       );
-      if (isFreeEdgeResultTick(event.scheduledTime)) {
-        ctx.waitUntil(runFreeEdgeResult(env, event.scheduledTime).then((r) => console.log('[free-edge-result]', JSON.stringify(r))));
-      }
-      if (isFreeEdgeTick(event.scheduledTime)) {
-        ctx.waitUntil(runFreeEdge(env, event.scheduledTime).then((r) => console.log('[free-edge]', JSON.stringify(r))));
-        ctx.waitUntil(runEdgeEmail(env, event.scheduledTime).then((r) => console.log('[edge-email]', JSON.stringify(r))));
-      }
-      if (isPriceGapTick(event.scheduledTime)) {
-        ctx.waitUntil(runPriceGaps(env, event.scheduledTime).then((r) => console.log('[price-gaps]', JSON.stringify(r))));
-      }
-      if (isDailyResultsTick(event.scheduledTime)) {
-        ctx.waitUntil(runDailyResults(env, event.scheduledTime).then((r) => console.log('[daily-results]', JSON.stringify(r))));
-      }
-      if (isRecapTick(event.scheduledTime)) {
-        ctx.waitUntil(runWeeklyRecap(env, event.scheduledTime).then((r) => console.log('[recap]', JSON.stringify(r))));
-      }
-      if (isGradingTick(event.scheduledTime)) {
-        ctx.waitUntil(
-          runGrading(env, event.scheduledTime)
-            .then(async (r) => {
-              if (r.checked > 0) console.log('[grading]', JSON.stringify(r));
-              if (r.errors) {
-                await sendAdminAlert(env, 'grading', 'edge grading hit errors', [
-                  'Overnight grading could not fetch some ESPN scoreboards:',
-                  ...r.errors,
-                  '',
-                  'Affected games stay ungraded and are retried on later runs.',
-                ]);
-              }
-            })
-            .catch((err) => console.error('[grading] runGrading threw unexpectedly:', err.message))
-            // After this tick's grading, so a game graded at 10:56 isn't reported as a gap.
-            .then(() => isProofCheckTick(event.scheduledTime) && runProofCheck(env, event.scheduledTime))
-            .then(() => isProofCheckTick(event.scheduledTime) && runUsageCheck(env, event.scheduledTime))
-            .then(() => isProofCheckTick(event.scheduledTime) && runLaunchCheck(env, event.scheduledTime))
-        );
-      }
     }
   },
 };
-
-// Chains generation into posting for full automation -- each half already carries its
-// own idempotency guard (already-generated / already-posted), so this stays safe under
-// Cloudflare's at-least-once cron redelivery: a retry just no-ops on whichever half
-// already succeeded. Both halves already avoid throwing internally; the try/catch here
-// is a last-resort guard so ctx.waitUntil never sees an unhandled rejection.
-async function generateAndPostSlot(env, slot) {
-  const generate = slot === 'props' ? generateForPropsSlot : generateForSlot;
-  let generated;
-  let posted;
-  try {
-    generated = await generate(env, slot);
-    console.log(`[${slot}] generation:`, JSON.stringify(generated));
-  } catch (err) {
-    generated = { threw: err.message };
-    console.error(`[${slot}] generation threw unexpectedly:`, err.message);
-  }
-  try {
-    posted = await postSlot(env, slot);
-    console.log(`[${slot}] posting:`, JSON.stringify(posted));
-  } catch (err) {
-    posted = { posted: false, reason: `postSlot threw: ${err.message}` };
-    console.error(`[${slot}] postSlot threw unexpectedly:`, err.message);
-  }
-
-  if (isSlotFailure(generated, posted)) {
-    const alert = await sendAdminAlert(env, `slot:${slot}`, `${slot} slot did not post`, [
-      `The ${slot} slot ran but nothing was posted to X.`,
-      '',
-      `Posting: ${posted.reason || 'unknown reason'}`,
-      `Generation: ${JSON.stringify(generated)}`,
-    ]);
-    console.log(`[${slot}] alert:`, JSON.stringify(alert));
-  }
-}

@@ -18,8 +18,7 @@ export function toFeedIso(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-// The 1,6,...,56 cron only. The 0,15,30 generation cron also reaches scheduled()'s
-// fallback branch; scanning on its ticks too would double-scan kickoffs.
+// The 1,6,...,56 cron only, so a tick from any other cron string can't double-scan kickoffs.
 export function isEdgeTick(ms) {
   return new Date(ms).getUTCMinutes() % 5 === 1;
 }
