@@ -67,9 +67,10 @@ wrangler dry run confirm it.
   path).
 - `worker/site.js`: `isSitePath` adds exact `/` and `/tools`. `handleSite` adds `renderHome` and
   `renderToolsIndex` branches, with no D1 reads.
-- `src/App.jsx`: the `Landing` import is removed. The `/` route stays only as a safety net that does
-  `window.location.replace('/')`, the same pattern as `OddsRedirect`, for any in-app navigation that
-  still reaches it.
+- `src/App.jsx`: the `Landing` import and the `/` route are removed, with no replacement. (A
+  `window.location.replace('/')` safety-net route would reload forever under local `vite` dev.)
+  Instead, the one client-side `<Link to="/">` (`AdminPanel`'s "Back to home") becomes `<a href="/">`,
+  and a test bans `to="/"` anywhere in `src/`.
 - `src/pages/Landing.jsx` is deleted, and so is `src/components/EmailCapture.jsx` (Landing is its
   only user). `subscribeEmail` in `src/lib/api.js` is deleted too if nothing else imports it.
   `/api/subscribe` itself is unchanged; the Worker form already posts to it.
