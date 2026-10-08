@@ -3,6 +3,7 @@
 // value that came from a feed goes through escapeHtml.
 import { americanOdds, selectionLabel, BOOK_NAMES } from './record.js';
 import { MARKETS, sportPath } from './oddsSnapshot.js';
+import { NAV, CTA_LABEL, FOOTER, COLORS } from '../shared/site.js';
 
 export const escapeHtml = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -45,23 +46,76 @@ export function signupForm({ source, returnTo, subscribed = false, error = false
 </form>`;
 }
 
+const GOLD = COLORS.sharp[500];
+const [G1, G2, G3] = COLORS.gradient;
+const [H1, H2, H3] = COLORS.gradientHover;
+
+// The header and footer match src/components/Nav.jsx and Footer.jsx: same 1152px container,
+// same two-row header below 520px (logo + CTA, then the links), same gold.
 const CSS = `body{margin:0;background:#0a0a0a;color:#e5e5e5;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-main,header,footer{max-width:760px;margin:0 auto;padding:16px}
-header{display:flex;gap:16px;align-items:center;border-bottom:1px solid #262626}
-header a{color:#e5e5e5;text-decoration:none}header .brand{font-weight:700;margin-right:auto}
-a{color:#34d399}h1{font-size:1.5rem;line-height:1.25}h2{font-size:1.15rem;margin-top:28px}
+.wrap{max-width:1152px;margin:0 auto;padding:16px;box-sizing:border-box}
+main{display:block;max-width:760px;margin:0 auto;padding:16px}main.wide{max-width:none;padding:0}
+a{color:${GOLD};text-decoration:none}a:hover{text-decoration:underline}
+.site-header{border-bottom:1px solid #262626}
+.site-header .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px}
+.logo img{display:block;height:32px;width:auto}
+.nav{display:flex;gap:24px;margin-left:auto}
+.nav a{color:#a3a3a3;font-size:.875rem;font-weight:500}.nav a:hover,.nav a.on{color:${GOLD};text-decoration:none}
+.btn,.signup button{display:inline-block;padding:8px 16px;border:0;border-radius:6px;background:linear-gradient(${G1},${G2},${G3});color:#171717;font-family:inherit;font-size:.875rem;font-weight:600;line-height:1.25;white-space:nowrap;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
+.btn:hover,.signup button:hover{background:linear-gradient(${H1},${H2},${H3});text-decoration:none}
+@media(min-width:640px){.logo img{height:44px}}
+@media(max-width:519px){.nav{order:3;width:100%;margin-left:0;justify-content:space-around;gap:0}.site-header .cta{margin-left:auto}}
+h1{font-size:1.5rem;line-height:1.25}h2{font-size:1.15rem;margin-top:28px}
 table{width:100%;border-collapse:collapse;margin:8px 0;font-size:.95rem}
 th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #262626}th{color:#a3a3a3;font-weight:500}
 .book{color:#a3a3a3;font-size:.85em}.edge td{color:#fbbf24}.muted{color:#a3a3a3;font-size:.9rem}
 .signup{margin:24px 0;padding:16px;border:1px solid #262626;border-radius:8px;background:#141414}
 .signup input[type=email]{width:100%;box-sizing:border-box;padding:10px;margin:8px 0;border-radius:6px;border:1px solid #404040;background:#0a0a0a;color:#e5e5e5}
-.signup button{padding:10px 16px;border:0;border-radius:6px;background:#10b981;color:#04130d;font-weight:700;cursor:pointer}
-.signup small{display:block;margin-top:8px;color:#a3a3a3}.ok{color:#34d399}.err{color:#f87171}
-footer{border-top:1px solid #262626;color:#a3a3a3;font-size:.85rem}
+.signup button{padding:10px 16px}
+.signup small{display:block;margin-top:8px;color:#a3a3a3}.ok{color:${GOLD}}.err{color:#f87171}
 .calc label{display:block;margin:12px 0 4px}.calc input{padding:8px;border-radius:6px;border:1px solid #404040;background:#0a0a0a;color:#e5e5e5;width:140px}
-.calc output{display:block;margin-top:12px;font-size:1.1rem}`;
+.calc output{display:block;margin-top:12px;font-size:1.1rem}
+.site-footer{border-top:1px solid #262626;margin-top:32px;color:#737373;font-size:.875rem}
+.site-footer .wrap{padding:32px 16px}.site-footer p{margin:0 0 8px}
+.site-footer a{color:inherit;text-decoration:underline}.site-footer a:hover{color:${GOLD}}
+.site-footer .legal{display:flex;flex-wrap:wrap;gap:0 16px;margin-top:16px;color:#525252}
+.hero{max-width:1152px;margin:0 auto;padding:64px 16px;box-sizing:border-box;text-align:center}
+.hero h1{margin:0;color:#fff;font-size:2.25rem;font-weight:800;line-height:1.15;letter-spacing:-.025em}
+.gold{color:${GOLD}}.lead{max-width:42rem;margin:16px auto 0;color:#a3a3a3;font-size:1.125rem}
+.actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:32px}
+.btn.lg{padding:12px 24px;font-size:1rem}
+.btn-outline{display:inline-block;padding:12px 24px;border:1px solid #404040;border-radius:6px;color:#fff;font-weight:600}.btn-outline:hover{border-color:${GOLD};text-decoration:none}
+.hero .signup{max-width:36rem;margin:32px auto 0;text-align:left}
+.band{background:#171717}.cols{display:grid;gap:32px;padding:64px 16px}
+.cols h3{margin:0;color:#fff;font-size:1.125rem}.cols p{color:#a3a3a3;font-size:.875rem}
+.trial{max-width:56rem;margin:0 auto;padding:64px 16px;text-align:center}
+.trial h2{margin:0;color:#fff;font-size:1.5rem}.trial p{max-width:42rem;margin:16px auto 0;color:#a3a3a3;font-size:.875rem}
+.cards{display:grid;gap:16px;margin:24px 0}
+.card{display:block;padding:16px;border:1px solid #262626;border-radius:8px;background:#141414;color:#e5e5e5}
+.card:hover{border-color:${GOLD};text-decoration:none}.card strong{color:${GOLD}}
+@media(min-width:640px){.hero h1{font-size:3rem}.cols{grid-template-columns:repeat(3,1fr)}.cards{grid-template-columns:1fr 1fr}}`;
 
-export function layout({ title, description, canonical, body, analyticsToken }) {
+// One note for every page that shows snapshot prices. It used to sit in the footer.
+const SNAPSHOT_NOTE = '<p class="muted">Prices are a daily snapshot and can move; confirm at the book before betting.</p>';
+
+function header(active, hasSignup) {
+  const links = NAV.map((n) =>
+    n.key === active ? `<a href="${n.href}" class="on" aria-current="page">${n.label}</a>` : `<a href="${n.href}">${n.label}</a>`
+  ).join('');
+  return `<header class="site-header"><div class="wrap"><a class="logo" href="/"><img src="/logo-white.png" alt="PickSharp" width="1591" height="682"></a><nav class="nav" aria-label="Main">${links}</nav><a class="btn cta" href="${hasSignup ? '#signup' : '/#signup'}">${CTA_LABEL}</a></div></header>`;
+}
+
+function footer() {
+  const links = FOOTER.links.map((l) => `<a href="${l.href}">${l.label}</a>`).join('');
+  return `<footer class="site-footer"><div class="wrap"><p>${escapeHtml(FOOTER.disclaimer)}</p>
+<p>Gambling problem? Call <a href="tel:${FOOTER.helpline.tel}">${FOOTER.helpline.label}</a>. ${FOOTER.eligibility}</p>
+<p class="legal"><span>© ${new Date().getUTCFullYear()} PickSharp. All rights reserved.</span>${links}</p></div></footer>`;
+}
+
+// active: which NAV item to mark ('odds' | 'tools' | 'record' | null). hasSignup: the page has a
+// signup form with id="signup", so the header CTA jumps to it instead of the home page's.
+// wide: the page lays out its own full-width sections (the home page).
+export function layout({ title, description, canonical, body, analyticsToken, active = null, hasSignup = true, wide = false }) {
   const analytics = analyticsToken
     ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"${escapeHtml(analyticsToken)}"}'></script>`
     : '';
@@ -70,12 +124,15 @@ export function layout({ title, description, canonical, body, analyticsToken }) 
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:site_name" content="PickSharp">
 <link rel="icon" href="/favicon-32.png">
 <style>${CSS}</style>${analytics}</head>
-<body><header><a class="brand" href="/">PickSharp</a><a href="/odds">Odds</a><a href="/tools/no-vig-calculator">Tools</a><a href="/record">Record</a></header>
-<main>${body}</main>
-<footer><p>21+ · Gambling problem? Call 1-800-GAMBLER. Prices are a daily snapshot and can move; confirm at the book before betting.</p>
-<p><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p></footer></body></html>`;
+<body>${header(active, hasSignup)}
+<main${wide ? ' class="wide"' : ''}>${body}</main>
+${footer()}</body></html>`;
 }
 
 function sideRow(market, side, started) {
@@ -114,6 +171,7 @@ export function renderGamePage({ game, takenAt, nowMs, revealed = [], score = nu
   const [away, home] = score ? score.split('-') : [];
   const body = `<h1>${escapeHtml(matchup)} odds</h1>
 <p class="muted">${escapeHtml(SPORT_LABELS[game.sport] || '')} · Kickoff ${kickoffEt(game.commence_time)} · Prices as of ${timeEt(takenAt)} ET</p>
+${SNAPSHOT_NOTE}
 ${score ? `<p><strong>Final: ${escapeHtml(game.away_team)} ${escapeHtml(away)}, ${escapeHtml(game.home_team)} ${escapeHtml(home)}</strong></p>` : ''}
 <p>The best and worst price across US sportsbooks for each bet, next to the fair price: Pinnacle's line with the bookmaker's margin removed. A price better than fair is an edge.</p>
 ${tables || '<p>No lines posted yet.</p>'}
@@ -125,6 +183,7 @@ ${signupForm({ source, returnTo: path, subscribed, error, cta: started ? 'Get th
     canonical: `${siteUrl}${path}`,
     body,
     analyticsToken,
+    active: 'odds',
   });
 }
 
@@ -141,6 +200,7 @@ export function renderOddsIndex({ games, takenAt, nowMs, source, subscribed, err
     .join('');
   const body = `<h1>Football odds: best lines and fair prices</h1>
 <p class="muted">${takenAt ? `Prices as of ${timeEt(takenAt)} ET, ${shortDateEt(takenAt)}` : 'Prices update daily around noon ET'}</p>
+${SNAPSHOT_NOTE}
 <p><strong>${edgeCount} edge${edgeCount === 1 ? '' : 's'} found today.</strong> Each one is a price better than fair at a US book.</p>
 ${signupForm({ source, returnTo: '/odds', subscribed, error, cta: 'Get them free by email.' })}
 ${sections || '<p>No upcoming games in today\'s scan.</p>'}`;
@@ -150,6 +210,7 @@ ${sections || '<p>No upcoming games in today\'s scan.</p>'}`;
     canonical: `${siteUrl}/odds`,
     body,
     analyticsToken,
+    active: 'odds',
   });
 }
 
@@ -199,6 +260,7 @@ ${signupForm({ source, returnTo: '/tools/no-vig-calculator', subscribed, error, 
     canonical: `${siteUrl}/tools/no-vig-calculator`,
     body,
     analyticsToken,
+    active: 'tools',
   });
 }
 
@@ -219,6 +281,7 @@ ${signupForm({ source, returnTo: '/tools/ev-calculator', subscribed, error, cta:
     canonical: `${siteUrl}/tools/ev-calculator`,
     body,
     analyticsToken,
+    active: 'tools',
   });
 }
 

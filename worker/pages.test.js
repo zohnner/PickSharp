@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, fmtAmerican, signupSource, signupForm, renderGamePage, renderOddsIndex } from './pages.js';
+import { escapeHtml, fmtAmerican, signupSource, signupForm, renderGamePage, renderOddsIndex, layout } from './pages.js';
 import { CALC_JS, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt } from './pages.js';
 import { shinFairProbs } from './devig.js';
+import { NAV, CTA_LABEL, FOOTER } from '../shared/site.js';
 
 const side = (o) => ({ outcome: 'Cincinnati Bengals', point: -2.5, best_price: 2.1, best_book: 'fanduel', worst_price: 1.87, worst_book: 'draftkings', books: 2, fair_prob: 0.5, is_edge: false, ...o });
 const game = {
@@ -106,4 +107,44 @@ test('sitemap and robots', () => {
   assert.match(robots, /Disallow: \/api\//);
   assert.match(robots, /Disallow: \/admin/);
   assert.match(robots, /Sitemap: https:\/\/wepicksharp.com\/sitemap.xml/);
+});
+
+const page = (o = {}) => layout({ title: 'T', description: 'D', canonical: 'https://wepicksharp.com/x', body: '<p>b</p>', ...o });
+
+test('layout renders the shared header and footer, in gold', () => {
+  const html = page();
+  for (const n of NAV) assert.match(html, new RegExp(`<a href="${n.href}"`), n.key);
+  assert.match(html, new RegExp(`>${CTA_LABEL}</a>`));
+  assert.match(html, /<img src="\/logo-white.png" alt="PickSharp"/);
+  assert.ok(html.includes(escapeHtml(FOOTER.disclaimer)), 'disclaimer');
+  assert.match(html, /href="tel:1-800-522-4700">1-800-GAMBLER<\/a>/);
+  assert.ok(html.includes(FOOTER.eligibility), 'eligibility');
+  assert.match(html, /<a href="\/terms">Terms of Service<\/a>/);
+  assert.doesNotMatch(html, /#10b981|#34d399/i);
+});
+
+test('layout marks the active section and points the CTA at the right form', () => {
+  assert.match(page({ active: 'odds' }), /<a href="\/odds" class="on" aria-current="page">/);
+  assert.doesNotMatch(page({ active: null }), /aria-current/);
+  assert.match(page(), /class="btn cta" href="#signup"/);
+  assert.match(page({ hasSignup: false }), /class="btn cta" href="\/#signup"/);
+  assert.match(page({ wide: true }), /<main class="wide">/);
+  assert.match(page(), /<main>/);
+});
+
+test('layout adds escaped Open Graph tags', () => {
+  const html = page({ title: 'A & "B"', description: '<d>' });
+  assert.match(html, /<meta property="og:title" content="A &amp; &quot;B&quot;">/);
+  assert.match(html, /<meta property="og:description" content="&lt;d&gt;">/);
+  assert.match(html, /<meta property="og:url" content="https:\/\/wepicksharp.com\/x">/);
+});
+
+test('odds pages carry the snapshot note and mark Odds active; calculators mark Tools', () => {
+  const g = renderGamePage({ ...base, nowMs: BEFORE });
+  assert.match(g, /daily snapshot and can move/);
+  assert.match(g, /<a href="\/odds" class="on"/);
+  const idx = renderOddsIndex({ games: [game], takenAt: base.takenAt, nowMs: BEFORE, source: 'odds_index', siteUrl: base.siteUrl });
+  assert.match(idx, /daily snapshot and can move/);
+  assert.match(renderNoVigCalculator({ source: 'tool', siteUrl: base.siteUrl }), /<a href="\/tools" class="on"/);
+  assert.match(renderEvCalculator({ source: 'tool', siteUrl: base.siteUrl }), /<a href="\/tools" class="on"/);
 });
