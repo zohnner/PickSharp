@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { escapeHtml, fmtAmerican, signupSource, signupForm, renderGamePage, renderOddsIndex, layout } from './pages.js';
-import { CALC_JS, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt } from './pages.js';
+import { CALC_JS, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt, renderHome, renderToolsIndex } from './pages.js';
 import { shinFairProbs } from './devig.js';
 import { NAV, CTA_LABEL, FOOTER } from '../shared/site.js';
 
@@ -147,4 +147,38 @@ test('odds pages carry the snapshot note and mark Odds active; calculators mark 
   assert.match(idx, /daily snapshot and can move/);
   assert.match(renderNoVigCalculator({ source: 'tool', siteUrl: base.siteUrl }), /<a href="\/tools" class="on"/);
   assert.match(renderEvCalculator({ source: 'tool', siteUrl: base.siteUrl }), /<a href="\/tools" class="on"/);
+});
+
+test('home page: hero, both buttons, the landing signup form, no record figures', () => {
+  const html = renderHome({ source: 'landing', siteUrl: 'https://wepicksharp.com' });
+  assert.match(html, /<title>PickSharp: find bets priced better than the market<\/title>/);
+  assert.match(html, /<h1>Find bets priced <span class="gold">better than the market<\/span><\/h1>/);
+  assert.match(html, /<a class="btn lg" href="\/odds">See today's odds<\/a>/);
+  assert.match(html, /<a class="btn-outline" href="\/record">View the record<\/a>/);
+  assert.match(html, /id="signup"/);
+  assert.match(html, /name="source" value="landing"/);
+  assert.match(html, /name="return_to" value="\/"/);
+  assert.match(html, /href="\/tools\/no-vig-calculator"/);
+  assert.match(html, /Free during the public trial/);
+  assert.match(html, /rel="canonical" href="https:\/\/wepicksharp.com\/"/);
+  assert.match(html, /<main class="wide">/);
+  assert.doesNotMatch(html, /aria-current/);
+  // The copy's only numbers are fixed (9 books, 100 edges, +1% bar); no decimal stats like a CLV figure.
+  assert.doesNotMatch(html, /\d+\.\d+%/);
+});
+
+test('home page thanks a subscriber in place of the form', () => {
+  assert.match(renderHome({ source: 'landing', subscribed: true, siteUrl: 'https://wepicksharp.com' }), /on the list/);
+});
+
+test('tools index links both calculators and marks Tools active', () => {
+  const html = renderToolsIndex({ source: 'tools_index', siteUrl: 'https://wepicksharp.com' });
+  assert.match(html, /<h1>Free sports betting tools<\/h1>/);
+  assert.match(html, /class="card" href="\/tools\/no-vig-calculator"/);
+  assert.match(html, /class="card" href="\/tools\/ev-calculator"/);
+  assert.match(html, /href="\/odds"/);
+  assert.match(html, /name="source" value="tools_index"/);
+  assert.match(html, /name="return_to" value="\/tools"/);
+  assert.match(html, /<a href="\/tools" class="on"/);
+  assert.match(html, /rel="canonical" href="https:\/\/wepicksharp.com\/tools"/);
 });

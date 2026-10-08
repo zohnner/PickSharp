@@ -285,6 +285,54 @@ ${signupForm({ source, returnTo: '/tools/ev-calculator', subscribed, error, cta:
   });
 }
 
+// The home page. Copy is the former React Landing page (src/pages/Landing.jsx at 77a61ea),
+// verbatim. It cites no record figures: public numbers are core edges only, and they live on /record.
+// opts: { source, subscribed?, error?, siteUrl, analyticsToken? }
+export function renderHome({ source, subscribed, error, siteUrl, analyticsToken }) {
+  const body = `<section class="hero">
+<h1>Find bets priced <span class="gold">better than the market</span></h1>
+<p class="lead">Every game day, PickSharp compares 9 US sportsbooks against Pinnacle's no-vig fair price and flags the bets a book is selling for more than they're worth. Every flagged bet is tracked against the closing line in public, misses included.</p>
+<div class="actions"><a class="btn lg" href="/odds">See today's odds</a><a class="btn-outline" href="/record">View the record</a></div>
+${signupForm({ source, returnTo: '/', subscribed, error })}
+</section>
+<section class="band"><div class="wrap cols">
+<div><h3>Math, not opinions</h3><p>We remove the bookmaker's margin from Pinnacle's line to get a fair price, then compare it with each US book. An edge is a price above fair, not a prediction about who wins.</p></div>
+<div><h3>Proof, not promises</h3><p>Beating the closing line is the standard test of whether a bet was good. Our <a href="/record">public record</a> shows the closing line value of every edge we log.</p></div>
+<div><h3>Free tools</h3><p>Check any bet yourself with the <a href="/tools/no-vig-calculator">no-vig calculator</a> and the <a href="/tools/ev-calculator">EV calculator</a>.</p></div>
+</div></section>
+<section class="trial"><h2>Free during the public trial</h2>
+<p>Every edge we find goes out free by email while we build the record. A paid plan comes only after the record clears a public bar: 100 qualifying edges with a known closing line, averaging +1% closing line value or better. Trial subscribers get a founding-member price.</p>
+</section>`;
+  return layout({
+    title: 'PickSharp: find bets priced better than the market',
+    description: "PickSharp compares 9 US sportsbooks against Pinnacle's no-vig fair price, flags bets priced above fair, and tracks every one against the closing line in public.",
+    canonical: `${siteUrl}/`,
+    body,
+    analyticsToken,
+    wide: true,
+  });
+}
+
+// opts: { source, subscribed?, error?, siteUrl, analyticsToken? }
+export function renderToolsIndex({ source, subscribed, error, siteUrl, analyticsToken }) {
+  const body = `<h1>Free sports betting tools</h1>
+<p>Both tools use the same Shin no-vig method as our edge scan.</p>
+<div class="cards">
+<a class="card" href="/tools/no-vig-calculator"><strong>No-vig calculator</strong><br>Remove the vig from a two-way line and get fair odds and true win chance.</a>
+<a class="card" href="/tools/ev-calculator"><strong>EV calculator</strong><br>Compare your odds to the fair odds and see expected value per bet.</a>
+</div>
+<p>Or skip the math: <a href="/odds">today's fair prices for every game</a>.</p>
+${signupForm({ source, returnTo: '/tools', subscribed, error, cta: 'Get the bets that beat the fair price, free by email.' })}`;
+  return layout({
+    title: 'Free sports betting tools: no-vig and EV calculators',
+    description: 'Free sports betting calculators: remove the vig to get fair odds, and check the expected value of any bet.',
+    canonical: `${siteUrl}/tools`,
+    body,
+    analyticsToken,
+    active: 'tools',
+  });
+}
+
 export function renderSitemap(siteUrl, entries) {
   const urls = entries
     .map((e) => `<url><loc>${escapeHtml(siteUrl + e.path)}</loc>${e.lastmod ? `<lastmod>${escapeHtml(e.lastmod)}</lastmod>` : ''}</url>`)
