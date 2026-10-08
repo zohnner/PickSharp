@@ -21,8 +21,8 @@ const env = (answers = {}) => ({ DB: fakeDb(answers), PUBLIC_SITE_URL: 'https://
 const get = (path, e, nowMs = Date.parse('2026-10-02T18:00:00Z')) => handleSite(new Request(`https://wepicksharp.com${path}`), e, nowMs);
 
 test('site paths', () => {
-  for (const p of ['/odds', '/odds/nfl/x', '/tools/ev-calculator', '/sitemap.xml', '/robots.txt']) assert.equal(isSitePath(p), true, p);
-  for (const p of ['/', '/record', '/api/odds', '/oddsx']) assert.equal(isSitePath(p), false, p);
+  for (const p of ['/', '/odds', '/odds/nfl/x', '/tools', '/tools/ev-calculator', '/sitemap.xml', '/robots.txt']) assert.equal(isSitePath(p), true, p);
+  for (const p of ['/record', '/auth', '/admin', '/dashboard', '/terms', '/api/odds', '/oddsx', '/toolsx', '/index.html']) assert.equal(isSitePath(p), false, p);
 });
 
 test('return paths must be same-site paths', () => {
@@ -65,6 +65,22 @@ test('tools, sitemap and robots are served', async () => {
   assert.match(xml, /<loc>https:\/\/wepicksharp.com\/<\/loc>/);
   assert.match(xml, /\/odds\/nfl\/jacksonville-jaguars-at-cincinnati-bengals-2026-10-04/);
   assert.match(xml, /\/record/);
+  assert.match(xml, /<loc>https:\/\/wepicksharp.com\/tools<\/loc>/);
   const robots = await get('/robots.txt', e);
   assert.match(robots.headers.get('Content-Type'), /text\/plain/);
+});
+
+test('home and tools index are served without touching D1', async () => {
+  const noDb = { PUBLIC_SITE_URL: 'https://wepicksharp.com' }; // no DB: any query would throw
+  const home = await get('/?src=x_reply', noDb);
+  assert.equal(home.status, 200);
+  assert.match(home.headers.get('Content-Type'), /text\/html/);
+  const h = await home.text();
+  assert.match(h, /Find bets priced/);
+  assert.match(h, /name="source" value="x_reply"/);
+  assert.match(await (await get('/', noDb)).text(), /name="source" value="landing"/);
+  assert.match(await (await get('/?subscribed=1', noDb)).text(), /on the list/);
+  const tools = await get('/tools', noDb);
+  assert.equal(tools.status, 200);
+  assert.match(await tools.text(), /name="source" value="tools_index"/);
 });

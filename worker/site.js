@@ -1,7 +1,7 @@
 // I/O for the public pages: reads odds_snapshots (and, after kickoff, the game's logged
 // edges), then hands plain data to pages.js. Responses are cached for 5 minutes at the edge,
 // which keeps crawler traffic off D1 and inside the CPU budget.
-import { renderGamePage, renderOddsIndex, renderNoVigCalculator, renderEvCalculator, renderSitemap, robotsTxt, signupSource } from './pages.js';
+import { renderGamePage, renderOddsIndex, renderNoVigCalculator, renderEvCalculator, renderHome, renderToolsIndex, renderSitemap, robotsTxt, signupSource } from './pages.js';
 import { etIsoDate, sportFromPath, sportPath } from './oddsSnapshot.js';
 import { buildRecord } from './record.js';
 
@@ -10,8 +10,10 @@ const KEEP_DAYS = 14;
 
 export function isSitePath(pathname) {
   return (
+    pathname === '/' ||
     pathname === '/odds' ||
     pathname.startsWith('/odds/') ||
+    pathname === '/tools' ||
     pathname.startsWith('/tools/') ||
     pathname === '/sitemap.xml' ||
     pathname === '/robots.txt'
@@ -83,6 +85,10 @@ export async function handleSite(request, env, nowMs = Date.now()) {
   const common = { siteUrl, analyticsToken: env.CF_ANALYTICS_TOKEN, ...formState(url) };
   const src = url.searchParams.get('src');
 
+  // Static pages: no D1 reads.
+  if (pathname === '/') return html(renderHome({ ...common, source: signupSource(src, 'landing') }));
+  if (pathname === '/tools') return html(renderToolsIndex({ ...common, source: signupSource(src, 'tools_index') }));
+
   if (pathname === '/odds') {
     const { games, takenAt } = await loadLatestGames(env.DB);
     return html(renderOddsIndex({ ...common, games, takenAt, nowMs, source: signupSource(src, 'odds_index') }));
@@ -118,6 +124,7 @@ export async function handleSite(request, env, nowMs = Date.now()) {
     const entries = [
       { path: '/' },
       { path: '/odds', lastmod: today },
+      { path: '/tools' },
       { path: '/tools/no-vig-calculator' },
       { path: '/tools/ev-calculator' },
       { path: '/record', lastmod: today },
