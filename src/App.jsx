@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Nav from './components/Nav.jsx';
 import Footer from './components/Footer.jsx';
-import Landing from './pages/Landing.jsx';
 import Record from './pages/Record.jsx';
 import Auth from './pages/Auth.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -37,10 +36,9 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <Nav session={session} />
+      <Nav />
       <main className="flex-1">
         <Routes>
-          <Route path="/" element={<Landing />} />
           <Route path="/picks" element={<OddsRedirect />} />
           <Route path="/record" element={<Record />} />
           <Route path="/auth" element={<Auth loadingSession={loadingSession} session={session} />} />

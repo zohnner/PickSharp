@@ -1,29 +1,25 @@
-import { Link } from 'react-router-dom';
+import { FOOTER } from '../../shared/site.js';
 
+// Same footer as the Worker pages (worker/pages.js layout()); both render shared/site.js.
 export default function Footer() {
   return (
-    <footer className="border-t border-neutral-800 bg-neutral-950">
+    <footer className="mt-8 border-t border-neutral-800 bg-neutral-950">
       <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-neutral-500">
+        <p className="mb-2">{FOOTER.disclaimer}</p>
         <p className="mb-2">
-          PickSharp compares sportsbook prices with a no-vig fair price, for informational purposes only.
-          Prices move, and a bet priced above fair can still lose; we do not guarantee outcomes. Betting
-          involves risk — never wager more than you can afford to lose.
-        </p>
-        <p>
           Gambling problem? Call{' '}
-          <a href="tel:1-800-522-4700" className="underline hover:text-sharp-500">
-            1-800-GAMBLER
+          <a href={`tel:${FOOTER.helpline.tel}`} className="underline hover:text-sharp-500">
+            {FOOTER.helpline.label}
           </a>
-          . Must be 21+ and located in a jurisdiction where sports betting is legal.
+          . {FOOTER.eligibility}
         </p>
         <p className="mt-4 flex flex-wrap gap-x-4 text-neutral-600">
           <span>© {new Date().getFullYear()} PickSharp. All rights reserved.</span>
-          <Link to="/terms" className="underline hover:text-sharp-500">
-            Terms of Service
-          </Link>
-          <Link to="/privacy" className="underline hover:text-sharp-500">
-            Privacy Policy
-          </Link>
+          {FOOTER.links.map((link) => (
+            <a key={link.href} href={link.href} className="underline hover:text-sharp-500">
+              {link.label}
+            </a>
+          ))}
         </p>
       </div>
     </footer>

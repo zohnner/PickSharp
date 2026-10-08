@@ -117,13 +117,6 @@ export async function trackSource(buyerToken, source) {
   });
 }
 
-export async function subscribeEmail(email, buyerToken, source) {
-  return request('/subscribe', {
-    method: 'POST',
-    body: JSON.stringify({ email, buyer_token: buyerToken, source }),
-  });
-}
-
 export async function sendTestEmail() {
   const headers = await authHeaders();
   return request('/admin/test-email', { method: 'POST', headers });

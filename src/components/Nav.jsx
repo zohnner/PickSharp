@@ -1,52 +1,42 @@
-import { Link, NavLink } from 'react-router-dom';
-import { supabase } from '../lib/supabase.js';
+import { useLocation } from 'react-router-dom';
+import { NAV, CTA_LABEL } from '../../shared/site.js';
 
-export default function Nav({ session }) {
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-
-  const linkClass = ({ isActive }) =>
-    `text-sm font-medium ${isActive ? 'text-sharp-500' : 'text-neutral-400 hover:text-sharp-500'}`;
+// Same header as the Worker pages (worker/pages.js layout()); both render shared/site.js.
+// Plain <a> tags: everything but /record is served by the Worker, so these are full page loads.
+// Below 520px it wraps to two rows: logo + CTA, then the links.
+export default function Nav() {
+  const { pathname } = useLocation();
 
   return (
     <header className="border-b border-neutral-800 bg-neutral-950">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <Link to="/" className="flex items-center">
-          <img src="/logo-white.png" alt="PickSharp" className="h-9 w-auto sm:h-11" />
-        </Link>
-        <nav className="flex items-center gap-4 sm:gap-6">
-          {/* Served by the Worker, not the SPA router, so these are full page loads. */}
-          <a href="/odds" className={linkClass({ isActive: false })}>
-            Odds
-          </a>
-          <a href="/tools/no-vig-calculator" className={`hidden sm:inline ${linkClass({ isActive: false })}`}>
-            Tools
-          </a>
-          <NavLink to="/record" className={linkClass}>
-            Record
-          </NavLink>
-          {session ? (
-            <>
-              <NavLink to="/dashboard" className={linkClass}>
-                Dashboard
-              </NavLink>
-              <button
-                onClick={handleLogout}
-                className="text-sm font-medium text-neutral-400 hover:text-sharp-500"
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4">
+        <a href="/" className="flex items-center">
+          <img src="/logo-white.png" alt="PickSharp" className="h-8 w-auto sm:h-11" />
+        </a>
+        <nav
+          aria-label="Main"
+          className="order-3 flex w-full justify-around min-[520px]:order-none min-[520px]:ml-auto min-[520px]:w-auto min-[520px]:justify-start min-[520px]:gap-6"
+        >
+          {NAV.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <a
+                key={item.key}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={`text-sm font-medium ${active ? 'text-sharp-500' : 'text-neutral-400 hover:text-sharp-500'}`}
               >
-                Log out
-              </button>
-            </>
-          ) : (
-            <a
-              href="/#signup"
-              className="whitespace-nowrap rounded-md bg-gradient-to-b from-[#f3dd8f] via-[#c6971f] to-[#8a6a17] px-3 py-2 text-sm font-semibold text-neutral-900 sm:px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] hover:from-[#f7e6a8] hover:via-[#d4a72e] hover:to-[#9c7818]"
-            >
-              Get edges free
-            </a>
-          )}
+                {item.label}
+              </a>
+            );
+          })}
         </nav>
+        <a
+          href="/#signup"
+          className="ml-auto whitespace-nowrap rounded-md bg-gradient-to-b from-[#f3dd8f] via-[#c6971f] to-[#8a6a17] px-4 py-2 text-sm font-semibold text-neutral-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] hover:from-[#f7e6a8] hover:via-[#d4a72e] hover:to-[#9c7818] min-[520px]:ml-0"
+        >
+          {CTA_LABEL}
+        </a>
       </div>
     </header>
   );

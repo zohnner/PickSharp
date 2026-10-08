@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { addPick, deletePick, listAllPicks, verifySlot, getFunnel, getPipelineStatus, getDiscoveredCandidates, dismissCandidate, sendTestEmail, getUsage, getReplyKit, getLaunchGate, gradeNow, getRecapPreview, sendRecapTestEmail, postRecapNow } from '../lib/api.js';
 
 const PICK_TYPES = ['spread', 'moneyline', 'prop', 'over_under'];
@@ -252,9 +252,9 @@ export default function AdminPanel({ session, loadingSession }) {
         <p className="mt-2 text-sm text-neutral-500">
           You're logged in as {session.user.email}, but this account isn't an admin.
         </p>
-        <Link to="/" className="mt-4 inline-block text-sm text-sharp-500 hover:underline">
+        <a href="/" className="mt-4 inline-block text-sm text-sharp-500 hover:underline">
           Back to home
-        </Link>
+        </a>
       </div>
     );
   }
